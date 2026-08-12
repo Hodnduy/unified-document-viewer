@@ -18,7 +18,7 @@
 10. [Observability Strategy](#10-observability-strategy)
 11. [Assumptions](#11-assumptions)
 12. [Scenario D Requirements Coverage](#12-scenario-d-requirements-coverage)
-13. [Google Antigravity Collaboration in Design Phase](#13-genai-collaboration-in-design-phase)
+13. [GenAI Collaboration in Design Phase](#13-genai-collaboration-in-design-phase)
 
 ---
 
@@ -266,7 +266,14 @@ GET /api/v1/documents?vin=1HGCM82633A004352&page=1&page_size=20
 ```json
 {
   "vin": "1HGCM82633A004352",
-  "total_count": 5,
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total_count": 5,
+    "total_pages": 1,
+    "has_next": false,
+    "has_previous": false
+  },
   "documents": [
     {
       "id": "doc_a1b2c3",
@@ -604,12 +611,13 @@ graph LR
 | Persistent database                              | ✅     | PostgreSQL for document metadata and search audit                  |
 | Mock external APIs                               | ✅     | Mocked Sales System API and Service System API                     |
 | Scalability / Performance / Reliability          | ✅     | Async, caching, parallel requests, graceful degradation, retries   |
+| Transient Error Resilience                       | ✅     | Smart retry with exponential backoff for 5xx/timeouts only; non-retriable 4xx errors fail fast |
 | Observability                                    | ✅     | Structured logging, metrics, optional tracing                      |
 | GenAI collaboration                              | ✅     | Documented in Section 13                                           |
 
 ---
 
-## 13. Google Antigravity Collaboration in Design Phase
+## 13. GenAI Collaboration in Design Phase
 
 ### 13.1 How Antigravity Was Used
 
