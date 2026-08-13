@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import respx
 
 from src.schemas.document import UnifiedDocument
 from src.services.aggregator import DocumentAggregator, _REQUEST_TIMEOUT
@@ -776,3 +777,59 @@ class TestGetAggregatedDocumentsSources:
         result = await aggregator.get_aggregated_documents(_TEST_VIN)
 
         assert set(result["sources"].keys()) == {"sales", "service"}
+
+
+# ===================================================================
+# get_aggregated_documents – using respx to mock HTTP endpoints
+# ===================================================================
+
+class TestGetAggregatedDocumentsWithRespx:
+    """Tests for ``get_aggregated_documents`` mocking endpoints with respx."""
+
+    @respx.mock
+    async def test_both_sources_return_200_degraded_false(self, aggregator: DocumentAggregator):
+        vin = "VIN123"
+
+        # Mock Sales API
+        respx.get(f"{aggregator.sales_base_url}/sales/documents?vin={vin}").mock(
+            return_value=httpx.Response(200, json=_SALES_RESPONSE)
+        )
+
+        # Mock Service API
+        respx.get(f"{aggregator.service_base_url}/service/documents?vin={vin}").mock(
+            return_value=httpx.Response(200, json=_SERVICE_RESPONSE)
+        )
+
+        result = await aggregator.get_aggregated_documents(vin)
+
+        # Assert returned document list contains docs from both sources
+        assert len(result["documents"]) == 3
+        sources = [doc.source_system for doc in result["documents"]]
+        assert "sales" in sources
+        assert "service" in sources
+        
+        # Assert degraded is False
+        assert result["degraded"] is False
+
+    @respx.mock
+    async def test_sales_timeout_service_200_degraded_true(self, aggregator: DocumentAggregator):
+        vin = "VIN123"
+
+        # Mock Sales API with Timeout
+        respx.get(f"{aggregator.sales_base_url}/sales/documents?vin={vin}").mock(
+            side_effect=httpx.TimeoutException("Connection timeout")
+        )
+
+        # Mock Service API with 200 OK
+        respx.get(f"{aggregator.service_base_url}/service/documents?vin={vin}").mock(
+            return_value=httpx.Response(200, json=_SERVICE_RESPONSE)
+        )
+
+        result = await aggregator.get_aggregated_documents(vin)
+
+        # Assert no crash, result contains only service data
+        assert len(result["documents"]) == 1
+        assert result["documents"][0].source_system == "service"
+
+        # Assert degraded must be True
+        assert result["degraded"] is True
