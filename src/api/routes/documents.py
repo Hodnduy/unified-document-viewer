@@ -10,8 +10,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db import get_db_session
+from src.models import SearchHistory
 from src.schemas.document import AggregatedDocumentsResponse
 from src.services.aggregator import DocumentAggregator
 
@@ -34,6 +37,8 @@ async def get_documents(
             max_length=17,
         ),
     ],
+    db: AsyncSession = Depends(get_db_session),
+    aggregator: DocumentAggregator = Depends(DocumentAggregator),
 ) -> AggregatedDocumentsResponse:
     """Fetch and merge documents from Sales and Service systems.
 
@@ -51,8 +56,16 @@ async def get_documents(
     - **degraded** – ``true`` when at least one source failed.
     - **timestamp** – ISO-8601 UTC timestamp of the response.
     """
-    aggregator = DocumentAggregator()
     result = await aggregator.get_aggregated_documents(vin)
+
+    # Persist search history record
+    record = SearchHistory(
+        vin=vin,
+        total_documents=len(result["documents"]),
+        is_degraded=result["degraded"],
+    )
+    db.add(record)
+    await db.commit()
 
     return AggregatedDocumentsResponse(
         vin=result["vin"],
