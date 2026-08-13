@@ -73,3 +73,76 @@ class UnifiedDocument(BaseModel):
             ]
         }
     }
+
+
+class SourceStatus(BaseModel):
+    """Per-source status included in the aggregated response.
+
+    Mirrors the ``sources`` object described in SYSTEM_DESIGN.md §5.2.
+    """
+
+    status: Literal["success", "error"] = Field(
+        ...,
+        description="Whether the upstream source responded successfully.",
+    )
+    count: Optional[int] = Field(
+        default=None,
+        description="Number of documents returned (present on success).",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error detail message (present on failure).",
+    )
+
+
+class AggregatedDocumentsResponse(BaseModel):
+    """Top-level response returned by ``GET /api/v1/documents``.
+
+    Matches the JSON structure defined in SYSTEM_DESIGN.md §5.2.
+    The endpoint **always** returns HTTP 200; partial upstream failures
+    are signalled via ``degraded: true`` and per-source error metadata.
+    """
+
+    vin: str = Field(
+        ...,
+        description="The queried Vehicle Identification Number.",
+        examples=["1HGCM82633A004352"],
+    )
+    documents: list[UnifiedDocument] = Field(
+        ...,
+        description="Unified list of documents from all responding sources.",
+    )
+    sources: Dict[str, SourceStatus] = Field(
+        ...,
+        description="Per-source fetch status (keyed by source name).",
+    )
+    degraded: bool = Field(
+        ...,
+        description=(
+            "``true`` when at least one upstream source failed; "
+            "``false`` when all sources responded successfully."
+        ),
+    )
+    timestamp: str = Field(
+        ...,
+        description="ISO-8601 UTC timestamp of when the response was generated.",
+        examples=["2026-08-08T15:21:00Z"],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "vin": "1HGCM82633A004352",
+                    "documents": [],
+                    "sources": {
+                        "sales": {"status": "success", "count": 2},
+                        "service": {"status": "error", "error": "Connection timeout"},
+                    },
+                    "degraded": True,
+                    "timestamp": "2026-08-08T15:21:00Z",
+                }
+            ]
+        }
+    }
+
