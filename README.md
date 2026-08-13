@@ -21,7 +21,6 @@
   - [1. High-Level Strategy for Guiding the AI](#1-high-level-strategy-for-guiding-the-ai)
   - [2. Verification & Refinement Process](#2-verification--refinement-process)
   - [3. Code Quality & Ownership](#3-code-quality--ownership)
-- [🎥 Video Presentation Guide (5–10 Minutes)](#-video-presentation-guide-510-minutes)
 
 ---
 
@@ -90,7 +89,6 @@ unified-document-viewer/
 │   ├── api/
 │   │   └── routes/
 │   │       ├── documents.py      # GET /api/v1/documents endpoint
-│   │       ├── health.py         # Health check endpoint
 │   │       └── history.py        # GET /api/v1/history endpoint
 │   ├── core/
 │   │   └── config.py             # Application settings & environment variables
@@ -115,8 +113,6 @@ unified-document-viewer/
 │       ├── test_mock_servers.py  # Tests for mock server functionality
 │       └── test_schemas_document.py    # Schema validation tests
 ├── examples.http                 # VS Code REST Client request examples
-├── Dockerfile                    # Container definition
-├── docker-compose.yml            # Multi-container orchestration setup
 ├── Makefile                      # Command shortcuts for cleanup and management
 ├── pyproject.toml                # Project metadata & dependencies
 └── README.md                     # Documentation & AI Collaboration Narrative
@@ -267,18 +263,3 @@ To maintain complete ownership and ensure software quality, every AI-generated c
 - **Zero Dummy Fallbacks:** Guaranteed that failure modes explicitly report upstream errors in `sources` status metadata rather than masking issues with silent fallbacks.
 - **Complete Type Annotations:** All functions and API routes include full Python type annotations (`__future__.annotations`, `Annotated`, `Pydantic models`).
 - **100% Passing Test Suite:** Validated 151 unit tests covering all components before finalizing commits.
-
----
-
-## 🎥 Video Presentation Guide (5–10 Minutes)
-
-When recording your video submission, follow this structured agenda:
-
-| Time | Agenda Item | Key Talking Points |
-| :--- | :--- | :--- |
-| **0:00 – 1:00** | **Introduction & Scenario** | Introduce yourself, state scenario: **Scenario D — The Unified Document Viewer (Backend Service)**. |
-| **1:00 – 3:00** | **System Architecture** | Walk through [`SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md). Explain parallel fetching (`asyncio.gather`), FastAPI, and graceful degradation when upstream sources fail. |
-| **3:00 – 5:00** | **Live API Demonstration** | Show terminal running mock servers (ports 8001 & 8002) and main server (port 8000). Execute cURL or Swagger UI calls for valid VIN, invalid VIN, and degraded state (kill one mock server to demonstrate `"degraded": true`). |
-| **5:00 – 7:00** | **AI Collaboration Story** | Describe how you guided the AI (System Design first, TDD, Resiliency checks). Highlight how you verified AI output and fixed deprecation/schema issues. |
-| **7:00 – 9:00** | **Code & Test Suite Walkthrough** | Show project structure, `DocumentAggregator` code, and run `uv run pytest` demonstrating all 151 passing unit tests. |
-| **9:00 – 10:00** | **Conclusion & Lessons Learned** | Summarize key takeaways: building resilient microservices, prompt engineering, and maintaining ownership of AI-assisted code. |

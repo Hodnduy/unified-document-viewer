@@ -227,7 +227,6 @@ sequenceDiagram
 |--------|------------------------|------------------------------------------------|
 | GET    | `/api/v1/documents`    | Search and aggregate documents by VIN          |
 | GET    | `/api/v1/history`      | Query past VIN search audit records            |
-| GET    | `/api/v1/health`       | Health check                                   |
 | GET    | `/`                    | Root welcome message                           |
 
 ### 5.2 Search Endpoint – Request/Response
@@ -429,7 +428,6 @@ For a production system, the data model could be extended with:
 | Validation       | Pydantic v2             | Fast validation, serialization, auto-generated JSON Schema                                      |
 | Testing          | pytest + pytest-asyncio | Async test support, fixtures, rich plugin ecosystem                                             |
 | Logging          | Python standard logging | Built-in, zero-dependency; structlog can be adopted as a future enhancement                     |
-| Containerization | Docker + docker-compose | Reproducible environments, easy local development, CI/CD ready                                  |
 
 ### 8.1 Future Technology Additions
 
@@ -470,7 +468,6 @@ For a production system, the data model could be extended with:
 - **Retry with backoff:** Limited retries for transient failures only (connection errors, timeouts, HTTP 502/503/504). Policy: max 2 retries, exponential backoff with jitter via `tenacity`
 - **Circuit breaker:** Prevent cascading failures when a source is consistently down
 - **Bulkhead isolation:** Separate connection pools per external source
-- **Health checks:** `GET /health/ready` endpoint that verifies DB connectivity and upstream reachability
 
 ---
 
@@ -589,7 +586,6 @@ unified-document-viewer/
 │   ├── api/
 │   │   └── routes/
 │   │       ├── documents.py      # GET /api/v1/documents endpoint
-│   │       ├── health.py         # Health check endpoint
 │   │       └── history.py        # GET /api/v1/history endpoint
 │   ├── core/
 │   │   └── config.py             # Application settings & environment variables
@@ -616,11 +612,7 @@ unified-document-viewer/
 │   │   └── test_schemas_document.py    # Schema validation tests
 │   ├── integration/
 │   │   └── test_api.py           # Integration tests for full API flow
-│   └── conftest.py               # Shared pytest fixtures
 ├── examples.http                 # VS Code REST Client request examples
-├── .env.example                  # Example environment variables
-├── Dockerfile                    # Container definition
-├── docker-compose.yml            # Multi-container orchestration setup
 ├── Makefile                      # Command shortcuts for cleanup and management
 ├── pyproject.toml                # Project metadata & dependencies
 └── README.md                     # Documentation & AI Collaboration Narrative
