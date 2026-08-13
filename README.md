@@ -34,7 +34,7 @@ The **Unified Document Viewer** backend service resolves this fragmentation by e
 
 ## 🏗️ Architecture & Design
 
-The complete architectural plan, data flow diagrams, technology selection rationale, observability strategy, and GenAI design phase logs are documented in detail in:
+The complete architectural plan, data flow diagrams, technology selection rationale, and GenAI design phase logs are documented in detail in:
 
 📄 **[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)**
 

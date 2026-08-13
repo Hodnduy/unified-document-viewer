@@ -15,10 +15,9 @@
 7. [Data Model](#7-data-model)
 8. [Technology Stack & Justifications](#8-technology-stack--justifications)
 9. [Scalability, Performance & Reliability](#9-scalability-performance--reliability)
-10. [Observability Strategy](#10-observability-strategy)
-11. [Assumptions](#11-assumptions)
-12. [Scenario D Requirements Coverage](#12-scenario-d-requirements-coverage)
-13. [GenAI Collaboration in Design Phase](#13-genai-collaboration-in-design-phase)
+10. [Assumptions](#10-assumptions)
+11. [Scenario D Requirements Coverage](#11-scenario-d-requirements-coverage)
+12. [GenAI Collaboration in Design Phase](#12-genai-collaboration-in-design-phase)
 
 ---
 
@@ -34,7 +33,7 @@ Build a **Unified Document Viewer** backend service that provides a single REST 
 
 ### 1.3 Scope
 
-- **In scope:** Backend REST API, data aggregation, persistent search audit storage, mock external APIs, testing, observability foundations.
+- **In scope:** Backend REST API, data aggregation, persistent search audit storage, mock external APIs, testing.
 - **Out of scope:** Frontend UI (mocked/stubbed via cURL examples and OpenAPI spec), authentication/authorization (documented as future work), real dealership system integrations.
 
 ---
@@ -62,10 +61,6 @@ graph TB
         SQLITE["SQLite<br/>Search Audit History"]
     end
 
-    subgraph Observability["Observability"]
-        LOG["Python Logging<br/>(standard library)"]
-    end
-
     Client -->|"HTTP Request<br/>GET /api/v1/documents?vin=..."| API
     API --> AGG
     AGG -->|"async parallel"| SALES
@@ -74,12 +69,9 @@ graph TB
     DB --> SQLITE
     API -->|"JSON Response"| Client
 
-    Backend -.-> LOG
-
     style Backend fill:#1a1a2e,stroke:#16213e,color:#e0e0e0
     style External fill:#0f3460,stroke:#16213e,color:#e0e0e0
     style Storage fill:#533483,stroke:#16213e,color:#e0e0e0
-    style Observability fill:#1b4332,stroke:#16213e,color:#e0e0e0
 ```
 
 > **Key principle:** The Aggregation Service is a stateless orchestrator — it fetches, normalises, and returns documents without storing them. SQLite provides lightweight persistent storage for search audit history, proving the DB integration requirement.
@@ -471,46 +463,7 @@ For a production system, the data model could be extended with:
 
 ---
 
-## 10. Observability Strategy
-
-### 10.1 Overview
-
-| Capability         | MVP Implementation                           | Production Evolution                  |
-|--------------------|----------------------------------------------|---------------------------------------|
-| Logging            | Python standard `logging` module             | Structured JSON logs via structlog → ELK/Loki |
-| Metrics            | Not instrumented                             | Prometheus scrape endpoint            |
-| Tracing            | Not instrumented                             | OpenTelemetry → OTLP Collector → Jaeger |
-
-### 10.2 Logging (MVP)
-
-- **Format:** Standard Python logging to stdout/stderr
-- **Levels:** DEBUG (development), INFO (production requests), WARNING (degraded responses), ERROR (failures)
-- **Coverage:** Application startup, request handling, aggregator error paths
-
-### 10.3 Future Observability Enhancements
-
-**Structured Logging (structlog):**
-- Structured JSON output with contextual fields: `request_id`, `vin`, `source_system`, `duration_ms`
-- Processor pipeline for consistent log enrichment
-
-**Metrics (Prometheus):**
-
-| Metric                              | Type      | Description                             |
-|--------------------------------------|-----------|-----------------------------------------|
-| `http_requests_total`               | Counter   | Total API requests by endpoint & status |
-| `http_request_duration_seconds`     | Histogram | Request latency distribution            |
-| `external_api_requests_total`       | Counter   | Calls to each external source           |
-| `external_api_duration_seconds`     | Histogram | External API latency by source          |
-| `documents_returned_total`          | Counter   | Documents aggregated per request        |
-
-**Distributed Tracing (OpenTelemetry):**
-- Trace propagation via W3C Trace Context headers
-- Spans: API request → Aggregation → Sales API call / Service API call → DB write
-- Attributes: `vin`, `source_system`, `document_count`
-
----
-
-## 11. Assumptions
+## 10. Assumptions
 
 | # | Assumption                                                                                           |
 |---|------------------------------------------------------------------------------------------------------|
@@ -526,7 +479,7 @@ For a production system, the data model could be extended with:
 
 ---
 
-## 12. Scenario D Requirements Coverage
+## 11. Scenario D Requirements Coverage
 
 | Requirement                                      | Status | Implementation                                                     |
 |--------------------------------------------------|--------|---------------------------------------------------------------------|
@@ -538,31 +491,30 @@ For a production system, the data model could be extended with:
 | Persistent database                              | ✅     | SQLite (async via aiosqlite) for search audit history              |
 | Mock external APIs                               | ✅     | Standalone Mock Sales API (port 8001) and Mock Service API (port 8002) |
 | Graceful degradation                             | ✅     | Partial failures return HTTP 200 with `degraded: true` and per-source error metadata |
-| Observability foundations                        | ✅     | Python standard logging; production observability stack designed    |
 | GenAI collaboration                              | ✅     | Documented in Section 13                                           |
 
 ---
 
-## 13. GenAI Collaboration in Design Phase
+## 12. GenAI Collaboration in Design Phase
 
-### 13.1 How Antigravity Was Used
+### 12.1 How Antigravity Was Used
 
-| Phase                 | AI Usage                                                                                  |
-|-----------------------|-------------------------------------------------------------------------------------------|
-| Requirements Analysis | Used AI to clarify ambiguous requirements and identify edge cases (partial failures, VIN validation) |
+| Phase                 | AI Usage                                                                                   |
+|-----------------------|------------------------------------------------------------------------------------------- |
+| Requirements Analysis | Used AI to clarify ambiguous requirements and identify edge cases                          |
 | Architecture Design   | Directed AI to propose architecture patterns for multi-source data aggregation             |
 | API Design            | Collaborated with AI to define REST API contracts and response schemas                     |
-| Technology Selection  | Asked AI to compare framework options (FastAPI vs Flask vs Django) with trade-off analysis |
+| Technology Selection  | Asked AI to compare tech options with trade-off analysis                                   |
 | Diagram Creation      | Used AI to generate Mermaid.js diagrams, then refined for accuracy                         |
 
-### 13.2 Verification Process
+### 12.2 Verification Process
 
 - **Cross-referenced** AI suggestions with official documentation (FastAPI, SQLAlchemy, httpx)
 - **Challenged** AI-proposed patterns by asking for trade-offs and alternatives
 - **Validated** data model design against the specific requirements of Scenario D
 - **Iterated** on API response format to ensure it clearly indicates source systems and handles partial failures
 
-### 13.3 Key Design Decisions Influenced by AI Collaboration
+### 12.3 Key Design Decisions Influenced by AI Collaboration
 
 1. **Graceful degradation with `degraded` flag** — AI initially suggested HTTP 206; after review, refined to HTTP 200 with explicit `degraded: true` metadata, which is semantically correct (206 is for range requests per RFC 7233)
 2. **Search audit history as DB use case** — AI helped identify that the aggregator should not store upstream documents (it doesn't own them), and that search audit history is the natural fit for a persistent database in this architecture
