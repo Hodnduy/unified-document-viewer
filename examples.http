@@ -1,0 +1,50 @@
+### ──────────────────────────────────────────────────────────────────────────
+### Unified Document Viewer — HTTP Request Examples
+### Open this file in VS Code with the "REST Client" extension to send
+### requests directly from the editor (click "Send Request" above each block).
+### ──────────────────────────────────────────────────────────────────────────
+
+@baseUrl = http://127.0.0.1:8000
+
+### ── 1. Root Health Check ───────────────────────────────────────────────────
+GET {{baseUrl}}/ HTTP/1.1
+Accept: application/json
+
+### ── 2. Aggregated Documents — Valid VIN (full success) ─────────────────────
+### Both Sales and Service systems respond → degraded: false
+GET {{baseUrl}}/api/v1/documents?vin=1HGCM82633A004352 HTTP/1.1
+Accept: application/json
+
+### ── 3. Aggregated Documents — Valid VIN with no matching documents ─────────
+### Both systems respond but return empty lists → documents: []
+GET {{baseUrl}}/api/v1/documents?vin=00000000000000000 HTTP/1.1
+Accept: application/json
+
+### ── 4. Invalid VIN — Too short (expect 422 Unprocessable Entity) ──────────
+GET {{baseUrl}}/api/v1/documents?vin=ABC HTTP/1.1
+Accept: application/json
+
+### ── 5. Invalid VIN — Too long (expect 422 Unprocessable Entity) ───────────
+GET {{baseUrl}}/api/v1/documents?vin=1HGCM82633A004352XX HTTP/1.1
+Accept: application/json
+
+### ── 6. Missing VIN parameter (expect 422 Unprocessable Entity) ────────────
+GET {{baseUrl}}/api/v1/documents HTTP/1.1
+Accept: application/json
+
+### ── 7. Search History — All records ────────────────────────────────────────
+### Returns all past VIN searches stored in the database
+GET {{baseUrl}}/api/v1/history HTTP/1.1
+Accept: application/json
+
+### ── 8. Search History — Filter by VIN ──────────────────────────────────────
+GET {{baseUrl}}/api/v1/history?vin=1HGCM82633A004352 HTTP/1.1
+Accept: application/json
+
+### ── 9. Search History — With pagination ────────────────────────────────────
+GET {{baseUrl}}/api/v1/history?limit=5&offset=0 HTTP/1.1
+Accept: application/json
+
+### ── 10. OpenAPI Spec (JSON) ────────────────────────────────────────────────
+GET {{baseUrl}}/openapi.json HTTP/1.1
+Accept: application/json

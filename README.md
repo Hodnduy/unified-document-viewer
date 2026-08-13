@@ -72,7 +72,8 @@ The complete architectural plan, data flow diagrams, technology selection ration
 - **Parallel Data Aggregation:** Uses Python `asyncio.gather` and non-blocking `httpx.AsyncClient` to fetch from Sales and Service APIs concurrently.
 - **Graceful Degradation:** When an upstream source fails or times out (3.0s limit), the API returns available documents, sets `"degraded": true`, and provides detailed per-source error metadata without returning HTTP 500.
 - **Unified Document Schema:** Standardised Pydantic model (`UnifiedDocument`) tag each document with its `source_system` (`sales` or `service`).
-- **Comprehensive Test Suite:** 159 unit tests covering routes, schemas, aggregator resilience, and mock servers.
+- **Persistent Database:** SQLite (async via aiosqlite) stores every search in a `search_history` table, with a dedicated `GET /api/v1/history` endpoint to query past searches.
+- **Comprehensive Test Suite:** 151 unit tests covering routes, schemas, aggregator resilience, and mock servers.
 
 ---
 
@@ -82,18 +83,28 @@ The complete architectural plan, data flow diagrams, technology selection ration
 unified-document-viewer/
 ├── docs/
 │   └── SYSTEM_DESIGN.md          # Comprehensive System Design Document
+├── scripts/
+│   ├── run_all.sh                # 🚀 One-command launcher for all 3 servers
+│   └── test_api.sh               # 🧪 cURL-based API smoke tests
 ├── src/
 │   ├── api/
 │   │   └── routes/
 │   │       ├── documents.py      # GET /api/v1/documents endpoint
-│   │       └── health.py         # Health check endpoint
+│   │       ├── health.py         # Health check endpoint
+│   │       └── history.py        # GET /api/v1/history endpoint
 │   ├── core/
 │   │   └── config.py             # Application settings & environment variables
+│   ├── db/
+│   │   ├── base.py               # SQLAlchemy DeclarativeBase
+│   │   └── session.py            # Async engine, session factory & dependency
 │   ├── mock_servers/
 │   │   ├── sales_api.py          # Standalone Mock Sales API (Port 8001)
 │   │   └── service_api.py        # Standalone Mock Service API (Port 8002)
+│   ├── models/
+│   │   └── search_history.py     # SearchHistory ORM model
 │   ├── schemas/
-│   │   └── document.py           # UnifiedDocument & response Pydantic models
+│   │   ├── document.py           # UnifiedDocument & response Pydantic models
+│   │   └── history.py            # SearchHistory response Pydantic models
 │   ├── services/
 │   │   └── aggregator.py         # Parallel document fetching & merging service
 │   └── main.py                   # FastAPI main entrypoint
@@ -101,8 +112,9 @@ unified-document-viewer/
 │   └── unit/
 │       ├── test_aggregator.py    # Unit tests for aggregation & fault tolerance
 │       ├── test_documents_endpoint.py  # Unit tests for REST API layer
-│       ├── test_mock_servers.py # Tests for mock server functionality
+│       ├── test_mock_servers.py  # Tests for mock server functionality
 │       └── test_schemas_document.py    # Schema validation tests
+├── examples.http                 # VS Code REST Client request examples
 ├── Dockerfile                    # Container definition
 ├── docker-compose.yml            # Multi-container orchestration setup
 ├── Makefile                      # Command shortcuts for cleanup and management
@@ -124,7 +136,10 @@ unified-document-viewer/
 Clone the repository and install dependencies:
 
 ```bash
-# Install dependencies using uv
+# Using Make (Recommended)
+make install
+
+# Or using uv directly
 uv sync
 ```
 
@@ -132,9 +147,22 @@ uv sync
 
 ---
 
-### 3. Running the Mock Upstream Servers
+### 3. Running All Servers (One Command)
 
-The aggregator connects to two upstream services. Open two separate terminal windows to launch them:
+The easiest way to start the entire stack (Mock Sales API, Mock Service API, and Main API) is with the provided script:
+
+```bash
+make run
+```
+*(Alternatively: `./scripts/run_all.sh`)*
+
+This starts all three servers in the background. Press **Ctrl+C** to stop them all, or run:
+```bash
+make run-stop
+```
+
+<details>
+<summary><strong>Manual startup (3 separate terminals)</strong></summary>
 
 **Terminal 1 — Mock Sales API (Port 8001):**
 ```bash
@@ -146,84 +174,71 @@ uv run uvicorn src.mock_servers.sales_api:app --port 8001
 uv run uvicorn src.mock_servers.service_api:app --port 8002
 ```
 
----
-
-### 4. Running the Main API Server
-
 **Terminal 3 — Main Application (Port 8000):**
 ```bash
 uv run uvicorn src.main:app --port 8000 --reload
 ```
 
+</details>
+
 ---
 
-### 5. Testing the API
+### 4. Testing the API
 
-#### Option A: Interactive Swagger UI
+#### Option A: Automated Smoke Tests (Recommended)
+
+Run all API scenarios automatically with one command:
+```bash
+make test-api
+```
+*(Alternatively: `./scripts/test_api.sh`)*
+
+This tests: root health check, valid VIN, empty VIN results, invalid VIN (422), missing VIN (422), and search history.
+
+#### Option B: Interactive Swagger UI
 Open your browser and navigate to:
 👉 **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**
 
-#### Option B: Using `curl` (Terminal)
+#### Option C: VS Code REST Client
+Open [`examples.http`](examples.http) in VS Code with the [REST Client extension](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) and click **"Send Request"** above each block.
 
-Test with valid VIN containing sample data (`1HGCM82633A004352`):
+#### Option D: Using `curl` (Terminal)
+
+**Search documents for a VIN:**
 ```bash
-curl -X GET "http://127.0.0.1:8000/api/v1/documents?vin=1HGCM82633A004352" -H "accept: application/json"
+curl -s "http://127.0.0.1:8000/api/v1/documents?vin=1HGCM82633A004352" | python3 -m json.tool
 ```
 
-**Example Successful Response:**
-```json
-{
-  "vin": "1HGCM82633A004352",
-  "documents": [
-    {
-      "id": "doc_a1b2c3d4",
-      "external_id": "SALE-001",
-      "vin": "1HGCM82633A004352",
-      "title": "Vehicle Purchase Agreement",
-      "document_type": "contract",
-      "source_system": "sales",
-      "date": "2024-03-15",
-      "metadata": {
-        "dealer_name": "AutoNation Honda",
-        "amount": 32500.0
-      }
-    },
-    {
-      "id": "doc_e5f6g7h8",
-      "external_id": "SRV-101",
-      "vin": "1HGCM82633A004352",
-      "title": "10,000 Mile Scheduled Maintenance",
-      "document_type": "maintenance",
-      "source_system": "service",
-      "date": "2024-09-20",
-      "metadata": {
-        "service_center": "Honda Service Center East",
-        "cost": 185.50
-      }
-    }
-  ],
-  "sources": {
-    "sales": { "status": "success", "count": 2 },
-    "service": { "status": "success", "count": 2 }
-  },
-  "degraded": false,
-  "timestamp": "2026-08-13T10:30:00Z"
-}
+**View search history (proves database persistence):**
+```bash
+curl -s "http://127.0.0.1:8000/api/v1/history" | python3 -m json.tool
+```
+
+**Filter history by VIN:**
+```bash
+curl -s "http://127.0.0.1:8000/api/v1/history?vin=1HGCM82633A004352" | python3 -m json.tool
+```
+
+**Invalid VIN (expect 422):**
+```bash
+curl -s "http://127.0.0.1:8000/api/v1/documents?vin=ABC" | python3 -m json.tool
 ```
 
 ---
 
 ## 🧪 Running Automated Tests
 
-Run the full pytest suite (159 unit tests):
+Run the full pytest suite (151 unit tests):
 
 ```bash
-# Run unit tests
-uv run pytest
+# Run unit tests using Make
+make test
 
 # Run unit tests with code coverage report
-uv run pytest --cov=src --cov-report=term-missing
+make test-cov
 ```
+
+*(Alternatively: `uv run pytest` and `uv run pytest --cov=src --cov-report=term-missing`)*
 
 ---
 
@@ -251,7 +266,7 @@ To maintain complete ownership and ensure software quality, every AI-generated c
 
 - **Zero Dummy Fallbacks:** Guaranteed that failure modes explicitly report upstream errors in `sources` status metadata rather than masking issues with silent fallbacks.
 - **Complete Type Annotations:** All functions and API routes include full Python type annotations (`__future__.annotations`, `Annotated`, `Pydantic models`).
-- **100% Passing Test Suite:** Validated 159 unit tests covering all components before finalizing commits.
+- **100% Passing Test Suite:** Validated 151 unit tests covering all components before finalizing commits.
 
 ---
 
@@ -265,5 +280,5 @@ When recording your video submission, follow this structured agenda:
 | **1:00 – 3:00** | **System Architecture** | Walk through [`SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md). Explain parallel fetching (`asyncio.gather`), FastAPI, and graceful degradation when upstream sources fail. |
 | **3:00 – 5:00** | **Live API Demonstration** | Show terminal running mock servers (ports 8001 & 8002) and main server (port 8000). Execute cURL or Swagger UI calls for valid VIN, invalid VIN, and degraded state (kill one mock server to demonstrate `"degraded": true`). |
 | **5:00 – 7:00** | **AI Collaboration Story** | Describe how you guided the AI (System Design first, TDD, Resiliency checks). Highlight how you verified AI output and fixed deprecation/schema issues. |
-| **7:00 – 9:00** | **Code & Test Suite Walkthrough** | Show project structure, `DocumentAggregator` code, and run `uv run pytest` demonstrating all 159 passing unit tests. |
+| **7:00 – 9:00** | **Code & Test Suite Walkthrough** | Show project structure, `DocumentAggregator` code, and run `uv run pytest` demonstrating all 151 passing unit tests. |
 | **9:00 – 10:00** | **Conclusion & Lessons Learned** | Summarize key takeaways: building resilient microservices, prompt engineering, and maintaining ownership of AI-assisted code. |

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.api.routes import documents, health
+from src.api.routes import documents, health, history
 from src.db import Base, engine
 
 # Import all models so Base.metadata knows about them
@@ -28,6 +28,7 @@ app = FastAPI(
 
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")
+app.include_router(history.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

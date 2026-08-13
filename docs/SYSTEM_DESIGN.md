@@ -34,7 +34,7 @@ Build a **Unified Document Viewer** backend service that provides a single REST 
 
 ### 1.3 Scope
 
-- **In scope:** Backend REST API, data aggregation, persistent storage, caching, mock external APIs, testing, observability.
+- **In scope:** Backend REST API, data aggregation, persistent search audit storage, mock external APIs, testing, observability foundations.
 - **Out of scope:** Frontend UI (mocked/stubbed via cURL examples and OpenAPI spec), authentication/authorization (documented as future work), real dealership system integrations.
 
 ---
@@ -45,12 +45,11 @@ Build a **Unified Document Viewer** backend service that provides a single REST 
 
 ```mermaid
 graph TB
-    Client["🖥️ Client<br/>(cURL / Postman / Frontend)"]
+    Client["🖥️ Client<br/>(cURL / Postman / Swagger UI)"]
 
     subgraph Backend["Backend Service (FastAPI)"]
         API["API Layer<br/>REST Endpoints"]
         AGG["Aggregation Service<br/>Parallel Fetching & Merging"]
-        CACHE["Cache Layer<br/>In-memory LRU (MVP)<br/>Redis-ready (Production)"]
         DB["Persistence Layer<br/>SQLAlchemy ORM"]
     end
 
@@ -60,27 +59,22 @@ graph TB
     end
 
     subgraph Storage["Persistent Storage"]
-        PG["PostgreSQL<br/>Document Metadata<br/>& Search Audit"]
+        SQLITE["SQLite<br/>Search Audit History"]
     end
 
     subgraph Observability["Observability"]
-        LOG["Structured Logging<br/>(structlog)"]
-        METRICS["Metrics<br/>(basic counters/histograms)"]
-        TRACE["Tracing<br/>(OpenTelemetry – optional MVP)"]
+        LOG["Python Logging<br/>(standard library)"]
     end
 
     Client -->|"HTTP Request<br/>GET /api/v1/documents?vin=..."| API
-    API --> CACHE
-    CACHE -->|"cache miss"| AGG
+    API --> AGG
     AGG -->|"async parallel"| SALES
     AGG -->|"async parallel"| SERVICE
-    AGG --> DB
-    DB --> PG
+    API --> DB
+    DB --> SQLITE
     API -->|"JSON Response"| Client
 
     Backend -.-> LOG
-    Backend -.-> METRICS
-    Backend -.-> TRACE
 
     style Backend fill:#1a1a2e,stroke:#16213e,color:#e0e0e0
     style External fill:#0f3460,stroke:#16213e,color:#e0e0e0
@@ -88,7 +82,7 @@ graph TB
     style Observability fill:#1b4332,stroke:#16213e,color:#e0e0e0
 ```
 
-> **Key principle:** Cache is an optimization layer (in-memory LRU for MVP, Redis-ready for production). PostgreSQL is the persistent storage for document metadata and search audit history. They serve different purposes and are not interchangeable.
+> **Key principle:** The Aggregation Service is a stateless orchestrator — it fetches, normalises, and returns documents without storing them. SQLite provides lightweight persistent storage for search audit history, proving the DB integration requirement.
 
 ### 2.2 Sequence Diagram – Document Search Flow
 
@@ -96,39 +90,31 @@ graph TB
 sequenceDiagram
     participant C as Client
     participant API as API Layer
-    participant CACHE as Cache Layer
     participant AGG as Aggregation Service
-    participant DB as PostgreSQL
+    participant DB as SQLite
     participant SALES as Sales System API
     participant SVC as Service System API
 
     C->>API: GET /api/v1/documents?vin=1HGCM82633A004352
-    API->>API: Validate VIN format
+    API->>API: Validate VIN format (17 chars)
 
-    API->>CACHE: Check cache for VIN
-    alt Cache Hit (not expired)
-        CACHE->>API: Return cached documents
-        API->>C: 200 OK (cached results)
-    else Cache Miss
-        API->>AGG: Fetch documents for VIN
+    API->>AGG: Fetch documents for VIN
 
-        par Parallel Requests
-            AGG->>SALES: GET /sales/documents?vin=...
-            AGG->>SVC: GET /service/documents?vin=...
-        end
-
-        SALES-->>AGG: Sales documents[]
-        SVC-->>AGG: Service documents[]
-
-        AGG->>AGG: Normalize & tag with source_system
-        AGG->>AGG: Merge into unified document list
-
-        AGG->>CACHE: Store aggregated result (TTL)
-        AGG->>DB: Persist document metadata & search record
-
-        AGG->>API: Return unified document list
-        API->>C: 200 OK (aggregated results)
+    par Parallel Requests
+        AGG->>SALES: GET /sales/documents?vin=...
+        AGG->>SVC: GET /service/documents?vin=...
     end
+
+    SALES-->>AGG: Sales documents[]
+    SVC-->>AGG: Service documents[]
+
+    AGG->>AGG: Normalize & tag with source_system
+    AGG->>AGG: Merge into unified document list
+
+    AGG->>API: Return unified document list
+
+    API->>DB: Persist search audit record
+    API->>C: 200 OK (aggregated results)
 ```
 
 ### 2.3 Error Handling Flow (Partial Failure)
@@ -175,37 +161,27 @@ sequenceDiagram
 ### 3.2 Aggregation Service
 
 | Aspect           | Detail                                                                              |
-|------------------|-------------------------------------------------------------------------------------|
+|------------------|------------------------------------------------------------------------------------|
 | Role             | Core business logic – orchestrates parallel data fetching and merging               |
 | Responsibilities | Parallel HTTP calls, response normalization, source tagging, timeout management     |
 | Technology       | Python asyncio + httpx (async HTTP client)                                          |
 
-### 3.3 Cache Layer
+### 3.3 Persistence Layer (Database)
 
-| Aspect           | Detail                                                                                  |
-|------------------|-----------------------------------------------------------------------------------------|
-| Role             | Performance optimization – reduces redundant calls to external APIs                     |
-| Responsibilities | TTL-based caching of aggregated query results, cache-aside pattern                      |
-| MVP              | In-memory LRU cache (e.g., `functools.lru_cache` or `cachetools.TTLCache`)              |
-| Production       | Redis-backed cache behind the same interface (swap without code changes)                |
-| Not responsible for | Persistent storage – that is PostgreSQL's role                                      |
+| Aspect              | Detail                                                                          |
+|----------------------|---------------------------------------------------------------------------------|
+| Role                 | Persistent storage for search audit history                                     |
+| Responsibilities     | Recording every VIN search with result metadata                                 |
+| Technology           | SQLite (async via aiosqlite) + SQLAlchemy 2.0 (async)                           |
+| Schema creation      | Auto-created on startup via `Base.metadata.create_all` in FastAPI lifespan      |
 
-### 3.4 Persistence Layer (Database)
-
-| Aspect           | Detail                                                                              |
-|------------------|-------------------------------------------------------------------------------------|
-| Role             | Persistent storage for document metadata and search audit history                   |
-| Responsibilities | CRUD operations, query optimization, migration management                           |
-| Technology       | PostgreSQL + SQLAlchemy 2.0 (async) + Alembic                                       |
-| Not responsible for | Query result caching – that is the Cache Layer's role                            |
-
-### 3.5 Mock External APIs
+### 3.4 Mock External APIs
 
 | Aspect           | Detail                                                                 |
 |------------------|------------------------------------------------------------------------|
 | Role             | Simulate real dealership systems for development and testing           |
 | Responsibilities | Serve realistic mock data, simulate latency and errors                 |
-| Technology       | Separate FastAPI app or in-process fixtures                            |
+| Technology       | Separate FastAPI applications (Port 8001 and 8002)                     |
 
 ---
 
@@ -215,29 +191,28 @@ sequenceDiagram
 
 ```
 1. Client sends GET /api/v1/documents?vin=<VIN>
-2. API Layer validates VIN format (17 alphanumeric chars, ISO 3779)
-3. Cache Layer checks for existing, non-expired results
-4. On cache miss → Aggregation Service triggers parallel requests:
+2. API Layer validates VIN format (17 alphanumeric characters, ISO 3779)
+3. Aggregation Service triggers parallel requests:
    a. Sales System API → returns sales documents
    b. Service System API → returns service documents
-5. Aggregation Service normalizes both responses into a unified schema
-6. Each document is tagged with source_system ("sales" | "service")
-7. Result is stored in cache (TTL-based, in-memory)
-8. Document metadata and search record are persisted to PostgreSQL
-9. Unified document list returned to client (HTTP 200)
+4. Aggregation Service normalizes both responses into a unified schema
+5. Each document is tagged with source_system ("sales" | "service")
+6. Search audit record is persisted to SQLite (VIN, document count, degraded status)
+7. Unified document list returned to client (HTTP 200)
 ```
 
 ### 4.2 Partial Failure Path
 
 ```
-1. Steps 1-4 same as above
+1. Steps 1-3 same as above
 2. One external API fails (timeout, 5xx, network error)
 3. Aggregation Service collects available results from the successful source
 4. Response includes:
    - Documents from the successful source
    - Per-source status metadata (success/error details)
    - "degraded": true flag
-5. HTTP 200 returned to client with degraded status
+5. Search audit record persisted with is_degraded = true
+6. HTTP 200 returned to client with degraded status
    (the request itself was processed successfully; upstream
     unavailability is conveyed via response body metadata)
 ```
@@ -248,35 +223,29 @@ sequenceDiagram
 
 ### 5.1 Endpoints
 
-| Method | Endpoint                     | Description                       |
-|--------|------------------------------|-----------------------------------|
-| GET    | `/api/v1/documents`          | Search documents by VIN           |
-| GET    | `/api/v1/documents/{doc_id}` | Get a specific document by ID     |
-| GET    | `/api/v1/health`             | Health check                      |
-| GET    | `/api/v1/health/ready`       | Readiness check (DB + externals)  |
+| Method | Endpoint               | Description                                    |
+|--------|------------------------|------------------------------------------------|
+| GET    | `/api/v1/documents`    | Search and aggregate documents by VIN          |
+| GET    | `/api/v1/history`      | Query past VIN search audit records            |
+| GET    | `/api/v1/health`       | Health check                                   |
+| GET    | `/`                    | Root welcome message                           |
 
 ### 5.2 Search Endpoint – Request/Response
 
 **Request:**
 ```
-GET /api/v1/documents?vin=1HGCM82633A004352&page=1&page_size=20
+GET /api/v1/documents?vin=1HGCM82633A004352
 ```
 
 **Response (200 OK – all sources successful):**
 ```json
 {
   "vin": "1HGCM82633A004352",
-  "pagination": {
-    "page": 1,
-    "page_size": 20,
-    "total_count": 5,
-    "total_pages": 1,
-    "has_next": false,
-    "has_previous": false
-  },
   "documents": [
     {
       "id": "doc_a1b2c3",
+      "external_id": "SALE-001",
+      "vin": "1HGCM82633A004352",
       "title": "Vehicle Purchase Agreement",
       "document_type": "contract",
       "source_system": "sales",
@@ -288,6 +257,8 @@ GET /api/v1/documents?vin=1HGCM82633A004352&page=1&page_size=20
     },
     {
       "id": "doc_d4e5f6",
+      "external_id": "SVC-101",
+      "vin": "1HGCM82633A004352",
       "title": "60,000 Mile Service Report",
       "document_type": "service_report",
       "source_system": "service",
@@ -299,12 +270,11 @@ GET /api/v1/documents?vin=1HGCM82633A004352&page=1&page_size=20
     }
   ],
   "sources": {
-    "sales": {"status": "success", "count": 2, "response_time_ms": 120},
-    "service": {"status": "success", "count": 3, "response_time_ms": 85}
+    "sales": {"status": "success", "count": 2},
+    "service": {"status": "success", "count": 3}
   },
   "degraded": false,
-  "cached": false,
-  "timestamp": "2026-08-08T15:21:00Z"
+  "timestamp": "2026-08-13T10:30:00Z"
 }
 ```
 
@@ -312,15 +282,36 @@ GET /api/v1/documents?vin=1HGCM82633A004352&page=1&page_size=20
 ```json
 {
   "vin": "1HGCM82633A004352",
-  "total_count": 3,
   "documents": ["..."],
   "sources": {
-    "sales": {"status": "error", "error": "Connection timeout after 5000ms"},
-    "service": {"status": "success", "count": 3, "response_time_ms": 85}
+    "sales": {"status": "error", "error": "Connection timeout after 3000ms"},
+    "service": {"status": "success", "count": 3}
   },
   "degraded": true,
-  "cached": false,
-  "timestamp": "2026-08-08T15:21:00Z"
+  "timestamp": "2026-08-13T10:30:00Z"
+}
+```
+
+### 5.3 Search History Endpoint
+
+**Request:**
+```
+GET /api/v1/history?vin=1HGCM82633A004352&limit=20&offset=0
+```
+
+**Response (200 OK):**
+```json
+{
+  "total": 5,
+  "records": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "vin": "1HGCM82633A004352",
+      "searched_at": "2026-08-13T10:30:00Z",
+      "total_documents": 5,
+      "is_degraded": false
+    }
+  ]
 }
 ```
 
@@ -382,87 +373,47 @@ GET /service/documents?vin={vin}
 
 The Aggregation Service handles these responses as follows:
 
-1. Calls both APIs concurrently via `asyncio.gather()`
+1. Calls both APIs concurrently via `asyncio.gather(return_exceptions=True)`
 2. Validates and normalizes each response into a common `UnifiedDocument` schema
 3. Maps `type` → `document_type` and adds `source_system = "sales"` or `"service"`
-4. Assigns an internal `id` (UUID) while preserving the original `id` as `external_id`
-5. Merges both lists into a single sorted result
+4. Assigns an internal `id` (e.g., `doc_a1b2c3`) while preserving the original `id` as `external_id`
+5. Merges both lists into a single result
 
 ---
 
 ## 7. Data Model
 
-### 7.1 Entity Relationship Diagram
+### 7.1 Database Schema
+
+The MVP uses a single table to persist search audit records, fulfilling the "persistent database" requirement:
 
 ```mermaid
 erDiagram
-    SEARCH_QUERY {
-        uuid id PK
-        string vin
-        timestamp searched_at
-        int total_results
-        boolean is_cached
-        boolean is_degraded
-        int response_time_ms
+    SEARCH_HISTORY {
+        uuid id PK "Auto-generated UUID"
+        string vin "17-char VIN searched"
+        timestamp searched_at "UTC timestamp (default: now)"
+        int total_documents "Number of documents returned"
+        boolean is_degraded "True if any source failed"
     }
-
-    DOCUMENT {
-        uuid id PK
-        string external_id
-        string vin
-        string title
-        string document_type
-        string source_system
-        date document_date
-        json metadata
-        timestamp fetched_at
-    }
-
-    SEARCH_RESULT {
-        uuid id PK
-        uuid search_query_id FK
-        uuid document_id FK
-    }
-
-    SOURCE_STATUS {
-        uuid id PK
-        uuid search_query_id FK
-        string source_name
-        string status
-        string error_message
-        int response_time_ms
-    }
-
-    SEARCH_QUERY ||--o{ SEARCH_RESULT : "produces"
-    DOCUMENT ||--o{ SEARCH_RESULT : "appears in"
-    SEARCH_QUERY ||--o{ SOURCE_STATUS : "has"
 ```
 
-### 7.2 Document Uniqueness
+> **Design rationale:** The aggregator's primary role is to query and merge documents from external systems in real time — it does not own or store document data. The `search_history` table provides a persistent audit trail of every search request, demonstrating the database integration requirement while keeping the architecture clean.
 
-Documents are uniquely identified by the combination of their source system and external ID:
-
-```
-UNIQUE(source_system, external_id)
-```
-
-Different upstream systems may independently use the same external document ID (e.g., both Sales and Service could have a document with `id = "DOC-001"`). Therefore, `external_id` alone is **not** globally unique — the `source_system` qualifier is required to disambiguate.
-
-### 7.3 Relationship: Search ↔ Document
-
-A `SEARCH_RESULT` association table links searches to documents. This reflects the reality that:
-
-- A single document may appear in **multiple** search queries (e.g., the same VIN searched at different times)
-- A single search query returns **multiple** documents
-
-This avoids implying that a document is "owned" by a single search.
-
-### 7.4 Document Types
+### 7.2 Document Types (from External Sources)
 
 | Source System | Document Types                                             |
 |---------------|-----------------------------------------------------------|
 | Sales         | `contract`, `invoice`, `financing_agreement`, `warranty`   |
 | Service       | `repair_order`, `inspection_report`, `maintenance_record`  |
+
+### 7.3 Future Data Model Evolution
+
+For a production system, the data model could be extended with:
+
+- **DOCUMENT** table: Cache document metadata locally for faster repeat queries
+- **SEARCH_RESULT** junction table: Link searches to documents (many-to-many)
+- **SOURCE_STATUS** table: Detailed per-source status for each search
 
 ---
 
@@ -473,16 +424,23 @@ This avoids implying that a document is "owned" by a single search.
 | Language         | Python 3.12+            | Strong async ecosystem, rich library support, team familiarity                                  |
 | Web Framework    | FastAPI                 | Native async, auto OpenAPI docs, Pydantic validation, high performance (ASGI)                   |
 | Async HTTP       | httpx                   | Async-native HTTP client, connection pooling, timeout management, `asyncio.gather` compatible   |
-| ORM              | SQLAlchemy 2.0 (async)  | Industry standard, async support, declarative models, Alembic migrations                        |
-| Database         | PostgreSQL              | ACID compliance, JSON support, production-ready, scalable                                       |
-| Migrations       | Alembic                 | De-facto standard for SQLAlchemy, version-controlled schema changes                             |
+| ORM              | SQLAlchemy 2.0 (async)  | Industry standard, async support, declarative models                                            |
+| Database         | SQLite (via aiosqlite)  | Zero-configuration, file-based, async support; sufficient for MVP audit logging                 |
 | Validation       | Pydantic v2             | Fast validation, serialization, auto-generated JSON Schema                                      |
-| Caching (MVP)    | In-memory LRU           | Zero-dependency, sufficient for single-instance MVP                                             |
-| Caching (Prod)   | Redis                   | Distributed cache for multi-instance deployments (same interface, swap at config level)         |
 | Testing          | pytest + pytest-asyncio | Async test support, fixtures, rich plugin ecosystem                                             |
-| Logging          | structlog               | Structured JSON logging, context binding, processor pipeline                                    |
-| Tracing          | OpenTelemetry           | Vendor-neutral distributed tracing, W3C Trace Context standard                                  |
+| Logging          | Python standard logging | Built-in, zero-dependency; structlog can be adopted as a future enhancement                     |
 | Containerization | Docker + docker-compose | Reproducible environments, easy local development, CI/CD ready                                  |
+
+### 8.1 Future Technology Additions
+
+| Layer            | Technology              | Rationale                                                                                       |
+|------------------|-------------------------|-------------------------------------------------------------------------------------------------|
+| Database (Prod)  | PostgreSQL              | ACID compliance, JSON support, production-ready, scalable; swap via `DATABASE_URL` config       |
+| Migrations       | Alembic                 | Version-controlled schema changes for production deployments                                    |
+| Caching          | In-memory LRU → Redis   | Reduce redundant external API calls; in-memory for single instance, Redis for distributed       |
+| Structured Logging | structlog             | Structured JSON logging, context binding, processor pipeline                                    |
+| Tracing          | OpenTelemetry           | Vendor-neutral distributed tracing, W3C Trace Context standard                                  |
+| Retry            | tenacity                | Exponential backoff with jitter for transient failures (5xx, timeouts)                          |
 
 ---
 
@@ -491,80 +449,54 @@ This avoids implying that a document is "owned" by a single search.
 ### 9.1 Scalability
 
 - **Horizontal scaling:** Stateless API design allows multiple instances behind a load balancer
-- **Database connection pooling:** SQLAlchemy async pool with configurable pool size
-- **Cache evolution:** In-memory LRU for MVP → Redis for distributed caching when scaling to multiple instances
+- **Database evolution:** SQLite (MVP) → PostgreSQL (production) via `DATABASE_URL` configuration swap
+- **Cache evolution (future):** In-memory LRU → Redis for distributed caching when scaling to multiple instances
 
 ### 9.2 Performance
 
-- **Parallel requests:** `asyncio.gather()` for concurrent calls to Sales & Service APIs
-- **Connection reuse:** httpx connection pooling to reduce TCP handshake overhead
-- **Response caching:** TTL-based in-memory cache reduces repeated external API calls
-- **Pagination:** Limit response payload size for large document sets
+- **Parallel requests:** `asyncio.gather()` for concurrent calls to Sales & Service APIs — the core performance optimization
+- **Non-blocking I/O:** Fully async stack (FastAPI + httpx + aiosqlite) maximizes throughput under concurrent load
 
 ### 9.3 Reliability
 
-**MVP (implemented):**
+**Implemented (MVP):**
 
-- **Timeouts:** Configurable per-source timeouts (default: 5s)
-- **Retry with backoff:** Limited retries for **transient failures only** — connection errors, timeouts, HTTP 502/503/504. Client errors (400, 401, 403, 404) are **not retried**. Policy: max 2 retries, exponential backoff with jitter.
-- **Graceful degradation:** Return available data when one source fails, with `degraded: true` and per-source error metadata (HTTP 200)
-- **Connection pooling:** httpx connection pool for efficient resource usage
-- **Health checks:** `/health` and `/health/ready` endpoints for orchestration
+- **Timeouts:** Hard 3.0-second timeout on every outbound request to external APIs, preventing slow upstream services from blocking the response
+- **Graceful degradation:** When one source fails (timeout, 5xx, network error), the API returns available documents from the successful source with `degraded: true` and per-source error metadata (HTTP 200)
+- **Error isolation:** Each source is fetched independently; one failure cannot crash the entire aggregation (`return_exceptions=True` in `asyncio.gather`)
 
 **Future production improvements:**
 
-- **Circuit breaker:** Prevent cascading failures when a source is consistently down (e.g., via `tenacity` or a lightweight state machine)
+- **Retry with backoff:** Limited retries for transient failures only (connection errors, timeouts, HTTP 502/503/504). Policy: max 2 retries, exponential backoff with jitter via `tenacity`
+- **Circuit breaker:** Prevent cascading failures when a source is consistently down
 - **Bulkhead isolation:** Separate connection pools per external source
+- **Health checks:** `GET /health/ready` endpoint that verifies DB connectivity and upstream reachability
 
 ---
 
 ## 10. Observability Strategy
 
-### 10.1 Overview Diagram
+### 10.1 Overview
 
-```mermaid
-graph LR
-    subgraph Application["Application (MVP)"]
-        SL["structlog<br/>Structured JSON Logs"]
-        PM["Basic Metrics<br/>Counters & Histograms"]
-        OT["OpenTelemetry<br/>Instrumentation (optional)"]
-    end
-
-    subgraph MVP_Outputs["MVP Outputs"]
-        STDOUT["stdout / stderr<br/>(JSON logs)"]
-        METRICS_LOG["Metrics via logs<br/>or /metrics endpoint"]
-    end
-
-    subgraph Prod_Outputs["Production Evolution"]
-        PROM["Prometheus<br/>Scrape Endpoint"]
-        JAEGER["Jaeger / OTLP<br/>Collector"]
-    end
-
-    SL --> STDOUT
-    PM --> METRICS_LOG
-    PM -.->|"production"| PROM
-    OT -.->|"production"| JAEGER
-
-    style Application fill:#1a1a2e,stroke:#16213e,color:#e0e0e0
-    style MVP_Outputs fill:#0f3460,stroke:#16213e,color:#e0e0e0
-    style Prod_Outputs fill:#533483,stroke:#16213e,color:#e0e0e0
-```
-
-### 10.2 MVP vs Production
-
-| Capability         | MVP                                          | Production Evolution                  |
+| Capability         | MVP Implementation                           | Production Evolution                  |
 |--------------------|----------------------------------------------|---------------------------------------|
-| Logging            | Structured JSON logs to stdout (structlog)   | Log aggregation (ELK/Loki)           |
-| Metrics            | Basic counters/histograms in application     | Prometheus scrape endpoint            |
-| Tracing            | Optional OpenTelemetry instrumentation       | OTLP Collector → Jaeger              |
+| Logging            | Python standard `logging` module             | Structured JSON logs via structlog → ELK/Loki |
+| Metrics            | Not instrumented                             | Prometheus scrape endpoint            |
+| Tracing            | Not instrumented                             | OpenTelemetry → OTLP Collector → Jaeger |
 
-### 10.3 Logging
+### 10.2 Logging (MVP)
 
-- **Format:** Structured JSON logs via `structlog`
-- **Context:** Every log entry includes `request_id`, `vin`, `source_system`, `duration_ms`
-- **Levels:** DEBUG (dev), INFO (prod requests), WARNING (degraded), ERROR (failures)
+- **Format:** Standard Python logging to stdout/stderr
+- **Levels:** DEBUG (development), INFO (production requests), WARNING (degraded responses), ERROR (failures)
+- **Coverage:** Application startup, request handling, aggregator error paths
 
-### 10.4 Metrics
+### 10.3 Future Observability Enhancements
+
+**Structured Logging (structlog):**
+- Structured JSON output with contextual fields: `request_id`, `vin`, `source_system`, `duration_ms`
+- Processor pipeline for consistent log enrichment
+
+**Metrics (Prometheus):**
 
 | Metric                              | Type      | Description                             |
 |--------------------------------------|-----------|-----------------------------------------|
@@ -572,14 +504,12 @@ graph LR
 | `http_request_duration_seconds`     | Histogram | Request latency distribution            |
 | `external_api_requests_total`       | Counter   | Calls to each external source           |
 | `external_api_duration_seconds`     | Histogram | External API latency by source          |
-| `cache_hits_total` / `cache_misses` | Counter   | Cache effectiveness                     |
 | `documents_returned_total`          | Counter   | Documents aggregated per request        |
 
-### 10.5 Tracing
-
-- **Trace propagation:** W3C Trace Context headers
-- **Spans:** API request → Aggregation → Sales API call / Service API call → DB write
-- **Attributes:** `vin`, `source_system`, `document_count`, `cache_hit`
+**Distributed Tracing (OpenTelemetry):**
+- Trace propagation via W3C Trace Context headers
+- Spans: API request → Aggregation → Sales API call / Service API call → DB write
+- Attributes: `vin`, `source_system`, `document_count`
 
 ---
 
@@ -587,15 +517,15 @@ graph LR
 
 | # | Assumption                                                                                           |
 |---|------------------------------------------------------------------------------------------------------|
-| 1 | VIN follows the ISO 3779 standard (17 alphanumeric characters, excluding I, O, Q)                   |
+| 1 | VIN follows the ISO 3779 standard (17 alphanumeric characters)                                      |
 | 2 | External APIs are RESTful and return JSON                                                            |
 | 3 | Document metadata is sufficient (no binary file content is transferred)                               |
-| 4 | Cache TTL of 5 minutes is acceptable for document freshness                                          |
-| 5 | The system should return partial results rather than failing entirely when one source is unavailable  |
-| 6 | Authentication/authorization is out of scope but designed as a pluggable middleware                   |
-| 7 | The number of documents per VIN is manageable in memory (< 1000 docs per vehicle)                    |
-| 8 | Mock APIs simulate realistic latency (50-500ms) and occasional failures                              |
-| 9 | Different upstream systems may reuse the same external document ID independently                     |
+| 4 | The system should return partial results rather than failing entirely when one source is unavailable  |
+| 5 | Authentication/authorization is out of scope but designed as a pluggable middleware                   |
+| 6 | The number of documents per VIN is manageable in memory (< 1000 docs per vehicle)                    |
+| 7 | Mock APIs simulate realistic latency and occasional failures                                         |
+| 8 | Different upstream systems may reuse the same external document ID independently                     |
+| 9 | SQLite is sufficient for MVP; production would use PostgreSQL via `DATABASE_URL` swap                |
 
 ---
 
@@ -603,16 +533,15 @@ graph LR
 
 | Requirement                                      | Status | Implementation                                                     |
 |--------------------------------------------------|--------|---------------------------------------------------------------------|
-| Unified VIN Search                               | ✅     | `GET /api/v1/documents?vin=<VIN>` with VIN validation              |
+| Unified VIN Search                               | ✅     | `GET /api/v1/documents?vin=<VIN>` with strict 17-char VIN validation |
 | Parallel Sales + Service API requests            | ✅     | `asyncio.gather()` with httpx async client                         |
 | Aggregated unified document response             | ✅     | Aggregation Service normalizes and merges both sources              |
-| Source system identification                     | ✅     | Each document tagged with `source_system` field                    |
+| Source system identification                     | ✅     | Each document tagged with `source_system` field (`"sales"` or `"service"`) |
 | RESTful backend API                              | ✅     | FastAPI with versioned endpoints (`/api/v1/`)                      |
-| Persistent database                              | ✅     | PostgreSQL for document metadata and search audit                  |
-| Mock external APIs                               | ✅     | Mocked Sales System API and Service System API                     |
-| Scalability / Performance / Reliability          | ✅     | Async, caching, parallel requests, graceful degradation, retries   |
-| Transient Error Resilience                       | ✅     | Smart retry with exponential backoff for 5xx/timeouts only; non-retriable 4xx errors fail fast |
-| Observability                                    | ✅     | Structured logging, metrics, optional tracing                      |
+| Persistent database                              | ✅     | SQLite (async via aiosqlite) for search audit history              |
+| Mock external APIs                               | ✅     | Standalone Mock Sales API (port 8001) and Mock Service API (port 8002) |
+| Graceful degradation                             | ✅     | Partial failures return HTTP 200 with `degraded: true` and per-source error metadata |
+| Observability foundations                        | ✅     | Python standard logging; production observability stack designed    |
 | GenAI collaboration                              | ✅     | Documented in Section 13                                           |
 
 ---
@@ -639,61 +568,60 @@ graph LR
 ### 13.3 Key Design Decisions Influenced by AI Collaboration
 
 1. **Graceful degradation with `degraded` flag** — AI initially suggested HTTP 206; after review, refined to HTTP 200 with explicit `degraded: true` metadata, which is semantically correct (206 is for range requests per RFC 7233)
-2. **Cache-aside pattern with clear separation** — AI proposed caching with TTL; refined to clearly separate in-memory cache (optimization) from PostgreSQL (persistent storage)
-3. **Structured logging with request context** — AI recommended `structlog` over standard `logging` for better observability in production
-4. **Document uniqueness via composite key** — AI helped identify the need for `UNIQUE(source_system, external_id)` to handle cross-system ID collisions
+2. **Search audit history as DB use case** — AI helped identify that the aggregator should not store upstream documents (it doesn't own them), and that search audit history is the natural fit for a persistent database in this architecture
+3. **Parallel fetching with `return_exceptions=True`** — AI recommended this `asyncio.gather` pattern to isolate source failures and enable graceful degradation
+4. **Document uniqueness via composite identifier** — AI helped design the `source_system + external_id` approach to handle potential ID collisions between upstream systems
 
 ---
 
 ## Appendix
 
-### A. Project Structure (Planned)
+### A. Project Structure
 
 ```
 unified-document-viewer/
 ├── docs/
-│   └── SYSTEM_DESIGN.md
+│   └── SYSTEM_DESIGN.md          # This document
+├── scripts/
+│   ├── run_all.sh                # One-command launcher for all 3 servers
+│   └── test_api.sh               # cURL-based API smoke tests
 ├── src/
-│   ├── api/                  # API routes & dependencies
-│   │   ├── __init__.py
-│   │   ├── routes/
-│   │   │   ├── documents.py
-│   │   │   └── health.py
-│   │   └── dependencies.py
-│   ├── core/                 # Configuration & settings
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   └── logging.py
-│   ├── models/               # SQLAlchemy models
-│   │   ├── __init__.py
-│   │   └── document.py
-│   ├── schemas/              # Pydantic schemas
-│   │   ├── __init__.py
-│   │   └── document.py
-│   ├── services/             # Business logic
-│   │   ├── __init__.py
-│   │   ├── aggregator.py
-│   │   └── external/
-│   │       ├── __init__.py
-│   │       ├── sales_client.py
-│   │       └── service_client.py
-│   ├── db/                   # Database setup & migrations
-│   │   ├── __init__.py
-│   │   ├── session.py
-│   │   └── migrations/
-│   ├── mock_servers/         # Mock external APIs
-│   │   ├── __init__.py
-│   │   ├── sales_api.py
-│   │   └── service_api.py
-│   └── main.py               # Application entry point
+│   ├── api/
+│   │   └── routes/
+│   │       ├── documents.py      # GET /api/v1/documents endpoint
+│   │       ├── health.py         # Health check endpoint
+│   │       └── history.py        # GET /api/v1/history endpoint
+│   ├── core/
+│   │   └── config.py             # Application settings & environment variables
+│   ├── db/
+│   │   ├── __init__.py           # Re-exports Base, engine, get_db_session
+│   │   ├── base.py               # SQLAlchemy DeclarativeBase
+│   │   └── session.py            # Async engine, session factory & dependency
+│   ├── mock_servers/
+│   │   ├── sales_api.py          # Standalone Mock Sales API (Port 8001)
+│   │   └── service_api.py        # Standalone Mock Service API (Port 8002)
+│   ├── models/
+│   │   └── search_history.py     # SearchHistory ORM model
+│   ├── schemas/
+│   │   ├── document.py           # UnifiedDocument & response Pydantic models
+│   │   └── history.py            # SearchHistory response Pydantic models
+│   ├── services/
+│   │   └── aggregator.py         # Parallel document fetching & merging service
+│   └── main.py                   # FastAPI main entrypoint
 ├── tests/
 │   ├── unit/
+│   │   ├── test_aggregator.py    # Unit tests for aggregation & fault tolerance
+│   │   ├── test_documents_endpoint.py  # Unit tests for REST API layer
+│   │   ├── test_mock_servers.py  # Tests for mock server functionality
+│   │   └── test_schemas_document.py    # Schema validation tests
 │   ├── integration/
-│   └── conftest.py
-├── docker-compose.yml
-├── .gitignore
-├── Dockerfile
-├── pyproject.toml
-├── README.md
-└── .env.example
+│   │   └── test_api.py           # Integration tests for full API flow
+│   └── conftest.py               # Shared pytest fixtures
+├── examples.http                 # VS Code REST Client request examples
+├── .env.example                  # Example environment variables
+├── Dockerfile                    # Container definition
+├── docker-compose.yml            # Multi-container orchestration setup
+├── Makefile                      # Command shortcuts for cleanup and management
+├── pyproject.toml                # Project metadata & dependencies
+└── README.md                     # Documentation & AI Collaboration Narrative
 ```
