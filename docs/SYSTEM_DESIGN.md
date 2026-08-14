@@ -462,6 +462,24 @@ For a production system, the data model could be extended with:
 - **Circuit breaker:** Prevent cascading failures when a source is consistently down
 - **Bulkhead isolation:** Separate connection pools per external source
 
+### 9.4 Observability Strategy
+
+To ensure the system's health, facilitate debugging, and monitor performance, we employ a comprehensive observability strategy focused on three pillars: logging, metrics, and tracing.
+
+1. **Logging:** 
+   - **Current (MVP):** Standard Python logging is used to capture application startup events, request boundaries, and exceptions.
+   - **Production Strategy:** We will log all critical paths, including incoming API requests, outbound HTTP calls to the Sales/Service systems, and database transactions. Logs will include contextual metadata (e.g., VIN, `source_system`, HTTP status codes) while strictly masking any PII. We plan to adopt structured JSON logging (via `structlog`) so that logs can be easily ingested and queried by centralized log management systems (like ELK stack, Datadog, or CloudWatch).
+
+2. **Metrics:** 
+   - **Strategy:** We will expose a `/metrics` endpoint (using a Prometheus client middleware) to track key Service Level Indicators (SLIs) in real-time.
+   - **Key Metrics Tracked:** 
+     - **Traffic:** Overall request rate (requests per second) to the `/api/v1/documents` endpoint.
+     - **Error Rates:** Tracked globally and independently for each external source (Sales API vs. Service API) to quickly detect partial upstream outages.
+     - **Latency:** Request duration percentiles (P50, P90, P99) for our API response time, as well as the latency of the external API calls.
+
+3. **Tracing:** 
+   - **Strategy:** To understand request lifecycles and diagnose latency bottlenecks across distributed components, we will implement distributed tracing using **OpenTelemetry**.
+   - **Mechanism:** A unique `X-Correlation-ID` (Trace ID) will be generated for every incoming request at the API gateway/entry point. This ID will be automatically injected into the HTTP headers of all outbound requests made by the Aggregation Service to the Sales and Service APIs. This allows us to visualize the entire request flow and pinpoint exactly where a timeout or failure occurred.
 ---
 
 ## 10. Assumptions
