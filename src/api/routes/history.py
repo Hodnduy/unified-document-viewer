@@ -33,6 +33,7 @@ async def get_search_history(
             description="Filter history by a specific VIN (optional).",
             min_length=17,
             max_length=17,
+            pattern="^[a-zA-Z0-9]{17}$",
         ),
     ] = None,
     limit: Annotated[

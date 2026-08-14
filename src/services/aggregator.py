@@ -8,6 +8,7 @@ without crashing the application.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Any, Dict, List, Union
 
@@ -18,6 +19,8 @@ from src.schemas.document import UnifiedDocument
 
 # Hard timeout applied to every outbound request (seconds).
 _REQUEST_TIMEOUT = 3.0
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentAggregator:
@@ -90,6 +93,7 @@ class DocumentAggregator:
             ``{'status': 'error', 'message': '<detail>'}`` on failure.
         """
         try:
+            logger.info(f"Fetching sales docs for VIN: {vin}")
             response = await client.get(
                 f"{self.sales_base_url}/sales/documents",
                 params={"vin": vin},
@@ -103,6 +107,7 @@ class DocumentAggregator:
                 for doc in data.get("documents", [])
             ]
         except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            logger.error(f"Failed to fetch sales docs for VIN {vin}: {e}")
             return {"status": "error", "message": str(e)}
 
     async def fetch_service_docs(
@@ -127,6 +132,7 @@ class DocumentAggregator:
             ``{'status': 'error', 'message': '<detail>'}`` on failure.
         """
         try:
+            logger.info(f"Fetching service docs for VIN: {vin}")
             response = await client.get(
                 f"{self.service_base_url}/service/documents",
                 params={"vin": vin},
@@ -140,6 +146,7 @@ class DocumentAggregator:
                 for doc in data.get("documents", [])
             ]
         except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            logger.error(f"Failed to fetch service docs for VIN {vin}: {e}")
             return {"status": "error", "message": str(e)}
 
     # ------------------------------------------------------------------

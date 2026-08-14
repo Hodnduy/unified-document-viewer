@@ -35,6 +35,7 @@ async def get_documents(
             description="Vehicle Identification Number (exactly 17 characters)",
             min_length=17,
             max_length=17,
+            pattern="^[a-zA-Z0-9]{17}$",
         ),
     ],
     db: AsyncSession = Depends(get_db_session),
