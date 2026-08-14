@@ -18,6 +18,7 @@
 10. [Assumptions](#10-assumptions)
 11. [Scenario D Requirements Coverage](#11-scenario-d-requirements-coverage)
 12. [GenAI Collaboration in Design Phase](#12-genai-collaboration-in-design-phase)
+13. [Appendix](#appendix)
 
 ---
 
