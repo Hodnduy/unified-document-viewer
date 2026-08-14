@@ -20,6 +20,13 @@ Accept: application/json
 GET {{baseUrl}}/api/v1/documents?vin=00000000000000000 HTTP/1.1
 Accept: application/json
 
+### ── 3.5. Simulating Upstream Failure (Graceful Degradation) ────────────────
+### To test this, manually kill one of the mock servers from your terminal:
+###   kill $(cat .pids/mock-sales-api.pid)
+### Then send this request. It will return 200 OK but with degraded: true.
+GET {{baseUrl}}/api/v1/documents?vin=1HGCM82633A004352 HTTP/1.1
+Accept: application/json
+
 ### ── 4. Invalid VIN — Too short (expect 422 Unprocessable Entity) ──────────
 GET {{baseUrl}}/api/v1/documents?vin=ABC HTTP/1.1
 Accept: application/json

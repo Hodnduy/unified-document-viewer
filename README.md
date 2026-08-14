@@ -220,6 +220,20 @@ curl -s "http://127.0.0.1:8000/api/v1/history?vin=1HGCM82633A004352" | python3 -
 curl -s "http://127.0.0.1:8000/api/v1/documents?vin=ABC" | python3 -m json.tool
 ```
 
+#### Option E: Simulating Upstream Failure (Graceful Degradation)
+
+To see the system's fault tolerance in action, you can manually stop one of the mock servers (e.g., the Sales API) while the Main API is still running:
+
+```bash
+# 1. Kill the Mock Sales API
+kill $(cat .pids/mock-sales-api.pid)
+
+# 2. Make the same search request again
+curl -s "http://127.0.0.1:8000/api/v1/documents?vin=1HGCM82633A004352" | python3 -m json.tool
+```
+
+*Notice that the API still returns HTTP 200 and the Service System documents, but now includes `"degraded": true` and lists the Sales System connection error in the metadata.*
+
 ---
 
 ## 🧪 Running Automated Tests
