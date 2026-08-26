@@ -1,6 +1,13 @@
 # Unified Document Viewer
 
-> A personal backend project for unified vehicle document aggregation.
+[![CI/CD Pipeline](https://github.com/<username>/unified-document-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/<username>/unified-document-viewer/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688.svg)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docker.com)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://postgresql.org)
+[![Redis](https://img.shields.io/badge/Redis-Cache-DC382D.svg)](https://redis.io)
+
+> A production-grade backend service for unified vehicle document aggregation, featuring a **Redis Cache-Aside pattern**, **Async PostgreSQL**, **Graceful Degradation**, and a full **CI/CD pipeline**.
 
 ---
 
@@ -8,239 +15,130 @@
 
 - [Overview](#-overview)
 - [Architecture & Design](#-architecture--design)
-- [Features & Requirements Coverage](#-features--requirements-coverage)
-- [Project Structure](#-project-structure)
-- [Quick Start Guide](#-quick-start-guide)
-  - [1. Prerequisites](#1-prerequisites)
-  - [2. Installation](#2-installation)
-  - [3. Running All Servers (One Command)](#3-running-all-servers-one-command)
-  - [4. Testing the API](#4-testing-the-api)
-- [Running Automated Tests](#-running-automated-tests)
+- [Key Features](#-key-features)
+- [Quick Start Guide (Docker)](#-quick-start-guide-docker)
+  - [1. Running the System](#1-running-the-system)
+  - [2. Database Migrations](#2-database-migrations)
+  - [3. Testing the API](#3-testing-the-api)
+- [Local Development & Tests](#-local-development--tests)
+- [CI/CD Pipeline](#-cicd-pipeline)
 
 ---
 
 ## 🔍 Overview
 
-Dealerships typically operate with fragmented systems: a **Sales System** (handling purchase contracts, invoices, financing) and a **Service System** (handling repair orders, inspection reports, maintenance). 
+Dealerships typically operate with fragmented systems: a **Sales System** and a **Service System**. 
 
-The **Unified Document Viewer** backend service resolves this fragmentation by exposing a single, high-performance RESTful endpoint (`GET /api/v1/documents`). Given a Vehicle Identification Number (VIN), the backend issues **async parallel requests** to all upstream dealership APIs, normalises heterogeneous data into a unified schema, and surfaces results gracefully even during partial upstream outages.
+The **Unified Document Viewer** backend resolves this fragmentation by exposing a high-performance RESTful endpoint (`GET /api/v1/documents`). Given a Vehicle Identification Number (VIN), the backend:
+1. **Checks Redis Cache** for instant retrieval.
+2. If cache misses, issues **async parallel requests** to all upstream APIs.
+3. Normalises heterogeneous data into a unified schema.
+4. Saves the search audit trail to **PostgreSQL**.
+5. Surfaces results gracefully even during partial upstream outages (Degraded Mode).
 
 ---
 
 ## 🏗️ Architecture & Design
 
-The complete architectural plan, data flow diagrams, and technology selection rationale are documented in detail in:
-
+The complete architectural plan and data flow diagrams are documented in:
 📄 **[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)**
 
-```
-+-----------------------------------------------------------------------+
-|                             Client Layer                              |
-|                   (cURL / Postman / Swagger UI)                       |
-+-----------------------------------------------------------------------+
-                                    |
-                    GET /api/v1/documents?vin=...
-                                    v
+```text
+                     GET /api/v1/documents?vin=...
+                                  │
+                                  ▼
 +-----------------------------------------------------------------------+
 |                    Unified Document Viewer API                        |
 |                            (FastAPI)                                  |
-|  - Route & Query Parameter Validation (VIN 17-char format)            |
-|  - Aggregation Service (httpx AsyncClient, asyncio.gather)            |
-|  - Resilient Error Handling (Graceful Degradation Mode)               |
 +-----------------------------------------------------------------------+
-                       /                         \
-           Parallel Async Call               Parallel Async Call
-                     /                             \
-                    v                               v
-+-----------------------+               +-----------------------+
-| Mock Sales System API |               |Mock Service System API|
-|     (Port 8001)       |               |     (Port 8002)       |
-+-----------------------+               +-----------------------+
+     │                      │                              │
+ (1) │ Cache Check      (2) │ Parallel Fetch           (3) │ Audit Log
+     ▼                      ▼                              ▼
++---------+     +-----------------------+              +------------+
+|  Redis  |     |   httpx AsyncClient   |              | PostgreSQL |
+| (Cache) |     +-----------------------+              | (History)  |
++---------+         /               \                  +------------+
+                   /                 \
+                  ▼                   ▼
+    +-------------------+      +-------------------+
+    |  Mock Sales API   |      | Mock Service API  |
+    |    (Port 8001)    |      |    (Port 8002)    |
+    +-------------------+      +-------------------+
 ```
 
 ---
 
-## ✨ Features & Requirements Coverage
+## ✨ Key Features
 
-- **Unified Search:** `GET /api/v1/documents?vin=<VIN>` endpoint with strict 17-character ISO 3779 VIN validation.
-- **Parallel Data Aggregation:** Uses Python `asyncio.gather` and non-blocking `httpx.AsyncClient` to fetch from Sales and Service APIs concurrently.
-- **Graceful Degradation:** When an upstream source fails or times out (3.0s limit), the API returns available documents, sets `"degraded": true`, and provides detailed per-source error metadata without returning HTTP 500.
-- **Unified Document Schema:** Standardised Pydantic model (`UnifiedDocument`) tag each document with its `source_system` (`sales` or `service`).
-- **Persistent Database:** SQLite (async via aiosqlite) stores every search in a `search_history` table, with a dedicated `GET /api/v1/history` endpoint to query past searches.
-- **Comprehensive Test Suite:** 151 unit tests covering routes, schemas, aggregator resilience, and mock servers.
+- **Redis Cache-Aside Pattern:** Instant document retrieval (sub-10ms) for repeated queries. Includes a fail-safe mechanism: if Redis is down, the system bypasses the cache and continues functioning normally.
+- **Async PostgreSQL Database:** Uses `asyncpg` and SQLAlchemy ORM for high-throughput, non-blocking database operations.
+- **Alembic Migrations:** Version-controlled database schema management.
+- **Graceful Degradation:** When an upstream source fails or times out, the API returns available documents, sets `"degraded": true`, and provides per-source error metadata without returning an HTTP 500.
+- **Dockerized Infrastructure:** A single `docker-compose.yml` orchestrates the API, Mock Servers, PostgreSQL, and Redis with health checks and dependency orders.
+- **CI/CD Pipeline:** GitHub Actions automatically run linting (`ruff`), unit tests (`pytest`), measure coverage, and push the verified Docker image to **GitHub Container Registry (GHCR)**.
 
 ---
 
-## 📁 Project Structure
+## 🚀 Quick Start Guide (Docker)
 
+The easiest way to run the entire distributed system is using Docker Compose.
+
+### 1. Running the System
+
+```bash
+# Build and start all 5 containers (API, Sales, Service, DB, Cache) in the background
+docker compose up --build -d
 ```
-unified-document-viewer/
-├── docs/
-│   └── SYSTEM_DESIGN.md          # Comprehensive System Design Document
-├── scripts/
-│   ├── run_all.sh                # 🚀 One-command launcher for all 3 servers
-│   └── test_api.sh               # 🧪 cURL-based API smoke tests
-├── src/
-│   ├── api/
-│   │   └── routes/
-│   │       ├── documents.py      # GET /api/v1/documents endpoint
-│   │       └── history.py        # GET /api/v1/history endpoint
-│   ├── core/
-│   │   └── config.py             # Application settings & environment variables
-│   ├── db/
-│   │   ├── base.py               # SQLAlchemy DeclarativeBase
-│   │   └── session.py            # Async engine, session factory & dependency
-│   ├── mock_servers/
-│   │   ├── sales_api.py          # Standalone Mock Sales API (Port 8001)
-│   │   └── service_api.py        # Standalone Mock Service API (Port 8002)
-│   ├── models/
-│   │   └── search_history.py     # SearchHistory ORM model
-│   ├── schemas/
-│   │   ├── document.py           # UnifiedDocument & response Pydantic models
-│   │   └── history.py            # SearchHistory response Pydantic models
-│   ├── services/
-│   │   └── aggregator.py         # Parallel document fetching & merging service
-│   └── main.py                   # FastAPI main entrypoint
-├── tests/
-│   └── unit/
-│       ├── test_aggregator.py    # Unit tests for aggregation & fault tolerance
-│       ├── test_documents_endpoint.py  # Unit tests for REST API layer
-│       ├── test_mock_servers.py  # Tests for mock server functionality
-│       └── test_schemas_document.py    # Schema validation tests
-├── examples.http                 # VS Code REST Client request examples
-├── Makefile                      # Command shortcuts for cleanup and management
-├── pyproject.toml                # Project metadata & dependencies
-└── README.md                     # Project documentation
+
+### 2. Database Migrations
+
+Once the containers are running, apply the Alembic database migrations to create the tables in PostgreSQL:
+
+```bash
+docker compose exec api uv run alembic upgrade head
+```
+
+### 3. Testing the API
+
+**Request aggregated documents (Cache Miss - fetching from APIs):**
+```bash
+curl -s "http://localhost:8000/api/v1/documents?vin=1HGCM82633A004352" | jq
+```
+*Notice `"cache_hit": false` in the response.*
+
+**Request again (Cache Hit - instant response from Redis):**
+```bash
+curl -s "http://localhost:8000/api/v1/documents?vin=1HGCM82633A004352" | jq
+```
+*Notice `"cache_hit": true` in the response.*
+
+**Force refresh the cache:**
+```bash
+curl -s "http://localhost:8000/api/v1/documents?vin=1HGCM82633A004352&force_refresh=true" | jq
 ```
 
 ---
 
-## 🚀 Quick Start Guide
+## 💻 Local Development & Tests
 
-### 1. Prerequisites
+If you want to run the code locally (without Docker):
 
-- **Python 3.12+**
-- **uv** (recommended fast package manager) or standard `pip` / `venv`
+1. **Install dependencies using `uv`:**
+   ```bash
+   uv sync --all-extras
+   ```
 
-### 2. Installation
-
-Clone the repository and install dependencies:
-
-```bash
-# Using Make (Recommended)
-make install
-
-# Or using uv directly
-uv sync
-```
-
-*(Alternatively using standard venv: `python -m venv .venv && source .venv/bin/activate && pip install -e .[dev]`)*
+2. **Run the 175+ automated tests:**
+   ```bash
+   uv run pytest --cov=src -v
+   ```
+   *(Note: Local tests are configured via `conftest.py` to use in-memory SQLite and mock Redis, so they run blazing fast without requiring local DB installations).*
 
 ---
 
-### 3. Running All Servers (One Command)
+## ⚙️ CI/CD Pipeline
 
-The easiest way to start the entire stack (Mock Sales API, Mock Service API, and Main API) is with the provided script:
+This project includes a robust CI/CD pipeline built with GitHub Actions (`.github/workflows/ci.yml`).
 
-```bash
-make run
-```
-*(Alternatively: `./scripts/run_all.sh`)*
-
-This starts all three servers in the background. Press **Ctrl+C** to stop them all, or run:
-```bash
-make run-stop
-```
-
-<details>
-<summary><strong>Manual startup (3 separate terminals)</strong></summary>
-
-**Terminal 1 — Mock Sales API (Port 8001):**
-```bash
-uv run uvicorn src.mock_servers.sales_api:app --port 8001
-```
-
-**Terminal 2 — Mock Service API (Port 8002):**
-```bash
-uv run uvicorn src.mock_servers.service_api:app --port 8002
-```
-
-**Terminal 3 — Main Application (Port 8000):**
-```bash
-uv run uvicorn src.main:app --port 8000 --reload
-```
-
-</details>
-
----
-
-### 4. Testing the API
-
-#### Option A: Automated Smoke Tests (Recommended)
-
-Run all API scenarios automatically with one command:
-```bash
-make test-api
-```
-*(Alternatively: `./scripts/test_api.sh`)*
-
-This tests: root health check, valid VIN, empty VIN results, invalid VIN (422), missing VIN (422), and search history.
-
-#### Option B: Interactive Swagger UI
-Open your browser and navigate to:
-👉 **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**
-
-#### Option C: VS Code REST Client
-Open [`examples.http`](examples.http) in VS Code with the [REST Client extension](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) and click **"Send Request"** above each block.
-
-#### Option D: Using `curl` (Terminal)
-
-**Search documents for a VIN:**
-```bash
-curl -s "http://127.0.0.1:8000/api/v1/documents?vin=1HGCM82633A004352" | python3 -m json.tool
-```
-
-**View search history (proves database persistence):**
-```bash
-curl -s "http://127.0.0.1:8000/api/v1/history" | python3 -m json.tool
-```
-
-**Filter history by VIN:**
-```bash
-curl -s "http://127.0.0.1:8000/api/v1/history?vin=1HGCM82633A004352" | python3 -m json.tool
-```
-
-**Invalid VIN (expect 422):**
-```bash
-curl -s "http://127.0.0.1:8000/api/v1/documents?vin=ABC" | python3 -m json.tool
-```
-
-#### Option E: Simulating Upstream Failure (Graceful Degradation)
-
-To see the system's fault tolerance in action, you can manually stop one of the mock servers (e.g., the Sales API) while the Main API is still running:
-
-```bash
-# 1. Kill the Mock Sales API
-kill $(cat .pids/mock-sales-api.pid)
-
-# 2. Make the same search request again
-curl -s "http://127.0.0.1:8000/api/v1/documents?vin=1HGCM82633A004352" | python3 -m json.tool
-```
-
-*Notice that the API still returns HTTP 200 and the Service System documents, but now includes `"degraded": true` and lists the Sales System connection error in the metadata.*
-
----
-
-## 🧪 Running Automated Tests
-
-Run the full pytest suite (151 unit tests):
-
-```bash
-# Run unit tests using Make
-make test
-
-# Run unit tests with code coverage report
-make test-cov
-```
-
-*(Alternatively: `uv run pytest` and `uv run pytest --cov=src --cov-report=term-missing`)*
+- **Continuous Integration (CI):** On every Pull Request, the pipeline runs `ruff` for code quality and `pytest` for unit testing.
+- **Continuous Deployment (CD):** When code is merged into `main`, the pipeline automatically builds the Docker image and pushes it to **GitHub Container Registry (GHCR)** tagged with `latest` and the specific commit SHA.

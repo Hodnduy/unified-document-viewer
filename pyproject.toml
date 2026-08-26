@@ -41,4 +41,15 @@ testpaths = ["tests"]
 [dependency-groups]
 dev = [
     "respx>=0.23.1",
+    "ruff>=0.8.0",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
