@@ -128,6 +128,10 @@ class AggregatedDocumentsResponse(BaseModel):
         description="ISO-8601 UTC timestamp of when the response was generated.",
         examples=["2026-08-08T15:21:00Z"],
     )
+    cache_hit: bool = Field(
+        ...,
+        description="Whether the response was served from the Redis cache.",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -141,8 +145,8 @@ class AggregatedDocumentsResponse(BaseModel):
                     },
                     "degraded": True,
                     "timestamp": "2026-08-08T15:21:00Z",
+                    "cache_hit": False,
                 }
             ]
         }
     }
-

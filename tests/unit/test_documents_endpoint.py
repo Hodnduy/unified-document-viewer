@@ -40,7 +40,7 @@ _ENDPOINT = "/api/v1/documents"
 _ISO8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 # §5.2 top-level keys that MUST appear in every successful response
-_REQUIRED_KEYS = {"vin", "documents", "sources", "degraded", "timestamp"}
+_REQUIRED_KEYS = {"vin", "documents", "sources", "degraded", "timestamp", "cache_hit"}
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +76,7 @@ def _aggregator_all_ok() -> dict[str, Any]:
             "service": {"status": "success", "count": 3},
         },
         "degraded": False,
+        "cache_hit": False,
     }
 
 
@@ -90,6 +91,7 @@ def _aggregator_sales_error() -> dict[str, Any]:
             "service": {"status": "success", "count": 3},
         },
         "degraded": True,
+        "cache_hit": False,
     }
 
 
@@ -103,6 +105,7 @@ def _aggregator_both_error() -> dict[str, Any]:
             "service": {"status": "error", "error": "Read timed out"},
         },
         "degraded": True,
+        "cache_hit": False,
     }
 
 
@@ -116,6 +119,7 @@ def _aggregator_empty() -> dict[str, Any]:
             "service": {"status": "success", "count": 0},
         },
         "degraded": False,
+        "cache_hit": False,
     }
 
 

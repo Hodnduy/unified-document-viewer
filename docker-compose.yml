@@ -1,5 +1,5 @@
 services:
-  # 1. Main API Service
+  # ── Main API Service ─────────────────────────────────────────────────
   api:
     build: .
     container_name: udv-api
@@ -8,13 +8,19 @@ services:
     environment:
       - SALES_SERVICE_URL=http://sales-mock:8001
       - SERVICE_SERVICE_URL=http://service-mock:8002
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/search_history.db
-    volumes:
-      - ./data:/app/data
+      - DATABASE_URL=postgresql+asyncpg://udv_user:udv_pass@postgres:5432/udv_db
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - sales-mock
-      - service-mock
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sales-mock:
+        condition: service_started
+      service-mock:
+        condition: service_started
 
+  # ── Mock Sales API ──────────────────────────────────────────────────
   sales-mock:
     build: .
     container_name: udv-sales-mock
@@ -22,9 +28,46 @@ services:
       - "8001:8001"
     command: ["uvicorn", "src.mock_servers.sales_api:app", "--host", "0.0.0.0", "--port", "8001"]
 
+  # ── Mock Service API ────────────────────────────────────────────────
   service-mock:
     build: .
     container_name: udv-service-mock
     ports:
       - "8002:8002"
     command: ["uvicorn", "src.mock_servers.service_api:app", "--host", "0.0.0.0", "--port", "8002"]
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: udv-postgres
+    environment:
+      POSTGRES_USER: udv_user
+      POSTGRES_PASSWORD: udv_pass
+      POSTGRES_DB: udv_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U udv_user -d udv_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: udv-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:

@@ -9,18 +9,26 @@ from sqlalchemy.ext.asyncio import (
 
 from src.core.config import settings
 
-# ── Async Engine ─────────────────────────────────────────────────────────────
-# aiosqlite is the async driver for SQLite; the URL scheme must be
-# "sqlite+aiosqlite:///..." so SQLAlchemy dispatches to the async dialect.
+# -- Async Engine -------------------------------------------------------------
+# Build connect_args conditionally: "check_same_thread" is SQLite-only.
+_connect_args: dict = {}
+if settings.DATABASE_URL.startswith("sqlite"):
+    _connect_args["check_same_thread"] = False
+
+# For PostgreSQL, configure connection pool sizing.
+_pool_kwargs: dict = {}
+if not settings.DATABASE_URL.startswith("sqlite"):
+    _pool_kwargs["pool_size"] = 5
+    _pool_kwargs["max_overflow"] = 10
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    # SQLite does not support pool_size/max_overflow, but connect_args can
-    # be used to pass pragmas for WAL mode, foreign keys, etc.
-    connect_args={"check_same_thread": False},
+    connect_args=_connect_args,
+    **_pool_kwargs,
 )
 
-# ── Session Factory ──────────────────────────────────────────────────────────
+# -- Session Factory -----------------------------------------------------------
 async_session_factory = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -28,7 +36,7 @@ async_session_factory = async_sessionmaker(
 )
 
 
-# ── FastAPI Dependency ───────────────────────────────────────────────────────
+# -- FastAPI Dependency --------------------------------------------------------
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Yield an async database session for use as a FastAPI dependency.
 

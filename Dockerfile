@@ -3,7 +3,9 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_HTTP_TIMEOUT=120 \
+    UV_CONCURRENT_DOWNLOADS=1
 
 WORKDIR /app
 
@@ -13,7 +15,7 @@ COPY pyproject.toml uv.lock README.md ./
 
 COPY src/ ./src/
 
-RUN uv sync --no-dev --frozen
+RUN uv sync --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 
