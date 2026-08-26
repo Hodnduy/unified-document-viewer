@@ -39,7 +39,7 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
-
+data/
 
 # PID files / Runtime PIDs
 .pids/
@@ -49,4 +49,3 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
-

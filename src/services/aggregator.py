@@ -3,17 +3,24 @@
 Fetches documents from external Sales and Service APIs, normalises each
 response into the ``UnifiedDocument`` schema, and surfaces errors gracefully
 without crashing the application.
+
+Integrates a **Cache-Aside** pattern via Redis: on every request the service
+checks for a cached result first, falling back to upstream API calls on a
+cache miss.  Cache failures are handled silently so that the service
+continues to function when Redis is unavailable.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import Any, Dict, List, Union
 
 import httpx
 
+from src.cache import get_cached, set_cached
 from src.core.config import settings
 from src.schemas.document import UnifiedDocument
 
@@ -156,31 +163,49 @@ class DocumentAggregator:
     async def get_aggregated_documents(
         self,
         vin: str,
+        force_refresh: bool = False,
     ) -> Dict[str, Any]:
         """Fetch documents from **all** sources concurrently and merge them.
 
-        Creates its own ``httpx.AsyncClient`` for connection pooling,
-        fires ``fetch_sales_docs`` and ``fetch_service_docs`` in parallel
-        via ``asyncio.gather(return_exceptions=True)``, then merges the
-        successful results into a single list.
+        Implements a **Cache-Aside** pattern:
+
+        1. Check Redis for a cached response (key ``documents:{vin}``).
+        2. On a cache hit, return the cached data immediately.
+        3. On a cache miss, fire parallel upstream requests, merge, cache
+           the result, and return.
 
         Parameters
         ----------
         vin:
             Vehicle Identification Number to query across all sources.
+        force_refresh:
+            When ``True``, bypass the cache and always fetch fresh data
+            from upstream APIs.
 
         Returns
         -------
         dict
-            ``{"vin": str, "documents": list[UnifiedDocument],
-              "degraded": bool}``
-
-            * **documents** – unified list from every source that responded
-              successfully.
-            * **degraded** – ``True`` when at least one source returned an
-              error or raised an exception; ``False`` when all sources
-              responded successfully.
+            ``{"vin": str, "documents": list, "sources": dict,
+              "degraded": bool, "cache_hit": bool}``
         """
+        cache_key = f"documents:{vin}"
+
+        # 1. Try the cache (unless the caller wants fresh data).
+        if not force_refresh:
+            cached_data = await get_cached(cache_key)
+            if cached_data is not None:
+                logger.info("Cache HIT for VIN: %s", vin)
+                result = json.loads(cached_data)
+                result["cache_hit"] = True
+                return result
+
+        logger.info(
+            "Cache %s for VIN: %s",
+            "BYPASS (force_refresh)" if force_refresh else "MISS",
+            vin,
+        )
+
+        # 2. Fetch from upstream APIs in parallel.
         async with httpx.AsyncClient() as client:
             sales_result, service_result = await asyncio.gather(
                 self.fetch_sales_docs(client, vin),
@@ -218,9 +243,21 @@ class DocumentAggregator:
             all_documents.extend(service_result)
             sources["service"] = {"status": "success", "count": len(service_result)}
 
+        # 3. Store the result in cache.
+        cache_payload = {
+            "vin": vin,
+            "documents": [
+                doc.model_dump(mode="json") for doc in all_documents
+            ],
+            "sources": sources,
+            "degraded": degraded,
+        }
+        await set_cached(cache_key, json.dumps(cache_payload), settings.CACHE_TTL)
+
         return {
             "vin": vin,
             "documents": all_documents,
             "sources": sources,
             "degraded": degraded,
+            "cache_hit": False,
         }

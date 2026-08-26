@@ -38,6 +38,12 @@ async def get_documents(
             pattern="^[a-zA-Z0-9]{17}$",
         ),
     ],
+    force_refresh: Annotated[
+        bool,
+        Query(
+            description="Bypass cache and fetch fresh data from upstream APIs.",
+        ),
+    ] = False,
     db: AsyncSession = Depends(get_db_session),
     aggregator: DocumentAggregator = Depends(DocumentAggregator),
 ) -> AggregatedDocumentsResponse:
@@ -45,6 +51,9 @@ async def get_documents(
 
     The ``vin`` query parameter is **required** and must be exactly
     17 characters long, matching the ISO 3779 VIN standard.
+
+    Set ``force_refresh=true`` to bypass the Redis cache and fetch
+    fresh data from the upstream APIs.
 
     The endpoint **always** returns HTTP 200.  When one upstream source
     fails, the available documents are still returned and the response
@@ -56,8 +65,9 @@ async def get_documents(
     - **sources** – per-source status (``success`` or ``error``).
     - **degraded** – ``true`` when at least one source failed.
     - **timestamp** – ISO-8601 UTC timestamp of the response.
+    - **cache_hit** – ``true`` when the response was served from cache.
     """
-    result = await aggregator.get_aggregated_documents(vin)
+    result = await aggregator.get_aggregated_documents(vin, force_refresh=force_refresh)
 
     # Persist search history record
     record = SearchHistory(
@@ -74,5 +84,5 @@ async def get_documents(
         sources=result["sources"],
         degraded=result["degraded"],
         timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        cache_hit=result["cache_hit"],
     )
-
