@@ -1,6 +1,6 @@
 # Unified Document Viewer
 
-> **Technical Coding Challenge — Scenario D (The Unified Document Viewer)**  
+> A personal backend project for unified vehicle document aggregation.
 
 ---
 
@@ -16,10 +16,6 @@
   - [3. Running All Servers (One Command)](#3-running-all-servers-one-command)
   - [4. Testing the API](#4-testing-the-api)
 - [Running Automated Tests](#-running-automated-tests)
-- [🤖 AI Collaboration Narrative](#-ai-collaboration-narrative)
-  - [1. High-Level Strategy for Guiding the AI](#1-high-level-strategy-for-guiding-the-ai)
-  - [2. Verification & Refinement Process](#2-verification--refinement-process)
-  - [3. Code Quality & Ownership](#3-code-quality--ownership)
 
 ---
 
@@ -33,7 +29,7 @@ The **Unified Document Viewer** backend service resolves this fragmentation by e
 
 ## 🏗️ Architecture & Design
 
-The complete architectural plan, data flow diagrams, technology selection rationale, and GenAI design phase logs are documented in detail in:
+The complete architectural plan, data flow diagrams, and technology selection rationale are documented in detail in:
 
 📄 **[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)**
 
@@ -114,7 +110,7 @@ unified-document-viewer/
 ├── examples.http                 # VS Code REST Client request examples
 ├── Makefile                      # Command shortcuts for cleanup and management
 ├── pyproject.toml                # Project metadata & dependencies
-└── README.md                     # Documentation & AI Collaboration Narrative
+└── README.md                     # Project documentation
 ```
 
 ---
@@ -248,31 +244,3 @@ make test-cov
 ```
 
 *(Alternatively: `uv run pytest` and `uv run pytest --cov=src --cov-report=term-missing`)*
-
----
-
-## 🤖 AI Collaboration Narrative
-
-> *This section documents how Artificial Intelligence (Google Antigravity AI agent) was leveraged as an essential engineering partner throughout the lifecycle of this project.*
-
-### 1. High-Level Strategy for Guiding the AI
-
-Rather than treating AI as a simple autocomplete tool, I operated as an **Engineering Manager & Lead Architect**, directing the AI agent via clear architectural constraints, test-driven expectations, and iterative code reviews:
-
-1. **System Design First:** Directing the AI to draft a comprehensive `SYSTEM_DESIGN.md` before writing production code. This established clear boundaries (e.g., ISO 3779 VIN validation, asynchronous parallel requests, resiliency contracts).
-2. **Modular Responsibility:** Enforcing separation of concerns — isolating Pydantic schemas, application settings, FastAPI routes, and upstream mock services into decoupled modules.
-3. **Test-Driven Verification:** Instructing the AI to generate robust unit tests for edge cases (e.g., invalid VIN length, upstream connection timeouts, partial source failures).
-
-### 2. Verification & Refinement Process
-
-To maintain complete ownership and ensure software quality, every AI-generated component was subjected to rigorous validation:
-
-- **Data Resiliency & Contract Checks:** I verified that upstream timeouts (3.0s limit) or connection failures returned HTTP 200 with `"degraded": true` rather than bubbling up unhandled exceptions or returning HTTP 500.
-- **Pydantic V2 Migration & Deprecations:** During testing, deprecation warnings regarding Pydantic V1 class-based configs were identified and refined into clean Pydantic V2 `model_config` patterns.
-- **Edge Case Validation:** Tested boundaries such as non-existent VINs (empty list response with `"degraded": false`) and malformed VIN strings (HTTP 422 Unprocessable Entity).
-
-### 3. Code Quality & Ownership
-
-- **Zero Dummy Fallbacks:** Guaranteed that failure modes explicitly report upstream errors in `sources` status metadata rather than masking issues with silent fallbacks.
-- **Complete Type Annotations:** All functions and API routes include full Python type annotations (`__future__.annotations`, `Annotated`, `Pydantic models`).
-- **100% Passing Test Suite:** Validated 151 unit tests covering all components before finalizing commits.

@@ -1,6 +1,6 @@
 # System Design Document – Unified Document Viewer
 
-> **Scenario D** | Backend Implementation (Python)
+> Backend Implementation (Python)
 
 ---
 
@@ -16,9 +16,8 @@
 8. [Technology Stack & Justifications](#8-technology-stack--justifications)
 9. [Scalability, Performance & Reliability](#9-scalability-performance--reliability)
 10. [Assumptions](#10-assumptions)
-11. [Scenario D Requirements Coverage](#11-scenario-d-requirements-coverage)
-12. [GenAI Collaboration in Design Phase](#12-genai-collaboration-in-design-phase)
-13. [Appendix](#appendix)
+11. [Requirements Coverage](#11-requirements-coverage)
+12. [Appendix](#appendix)
 
 ---
 
@@ -498,7 +497,7 @@ To ensure the system's health, facilitate debugging, and monitor performance, we
 
 ---
 
-## 11. Scenario D Requirements Coverage
+## 11. Requirements Coverage
 
 | Requirement                                      | Status | Implementation                                                     |
 |--------------------------------------------------|--------|---------------------------------------------------------------------|
@@ -510,35 +509,6 @@ To ensure the system's health, facilitate debugging, and monitor performance, we
 | Persistent database                              | ✅     | SQLite (async via aiosqlite) for search audit history              |
 | Mock external APIs                               | ✅     | Standalone Mock Sales API (port 8001) and Mock Service API (port 8002) |
 | Graceful degradation                             | ✅     | Partial failures return HTTP 200 with `degraded: true` and per-source error metadata |
-| GenAI collaboration                              | ✅     | Documented in Section 13                                           |
-
----
-
-## 12. GenAI Collaboration in Design Phase
-
-### 12.1 How Antigravity Was Used
-
-| Phase                 | AI Usage                                                                                   |
-|-----------------------|------------------------------------------------------------------------------------------- |
-| Requirements Analysis | Used AI to clarify ambiguous requirements and identify edge cases                          |
-| Architecture Design   | Directed AI to propose architecture patterns for multi-source data aggregation             |
-| API Design            | Collaborated with AI to define REST API contracts and response schemas                     |
-| Technology Selection  | Asked AI to compare tech options with trade-off analysis                                   |
-| Diagram Creation      | Used AI to generate Mermaid.js diagrams, then refined for accuracy                         |
-
-### 12.2 Verification Process
-
-- **Cross-referenced** AI suggestions with official documentation (FastAPI, SQLAlchemy, httpx)
-- **Challenged** AI-proposed patterns by asking for trade-offs and alternatives
-- **Validated** data model design against the specific requirements of Scenario D
-- **Iterated** on API response format to ensure it clearly indicates source systems and handles partial failures
-
-### 12.3 Key Design Decisions Influenced by AI Collaboration
-
-1. **Graceful degradation with `degraded` flag** — AI initially suggested HTTP 206; after review, refined to HTTP 200 with explicit `degraded: true` metadata, which is semantically correct (206 is for range requests per RFC 7233)
-2. **Search audit history as DB use case** — AI helped identify that the aggregator should not store upstream documents (it doesn't own them), and that search audit history is the natural fit for a persistent database in this architecture
-3. **Parallel fetching with `return_exceptions=True`** — AI recommended this `asyncio.gather` pattern to isolate source failures and enable graceful degradation
-4. **Document uniqueness via composite identifier** — AI helped design the `source_system + external_id` approach to handle potential ID collisions between upstream systems
 
 ---
 
@@ -586,5 +556,5 @@ unified-document-viewer/
 ├── examples.http                 # VS Code REST Client request examples
 ├── Makefile                      # Command shortcuts for cleanup and management
 ├── pyproject.toml                # Project metadata & dependencies
-└── README.md                     # Documentation & AI Collaboration Narrative
+└── README.md                     # Project documentation
 ```

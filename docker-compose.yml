@@ -1,0 +1,30 @@
+services:
+  # 1. Main API Service
+  api:
+    build: .
+    container_name: udv-api
+    ports:
+      - "8000:8000"
+    environment:
+      - SALES_SERVICE_URL=http://sales-mock:8001
+      - SERVICE_SERVICE_URL=http://service-mock:8002
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/search_history.db
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - sales-mock
+      - service-mock
+
+  sales-mock:
+    build: .
+    container_name: udv-sales-mock
+    ports:
+      - "8001:8001"
+    command: ["uvicorn", "src.mock_servers.sales_api:app", "--host", "0.0.0.0", "--port", "8001"]
+
+  service-mock:
+    build: .
+    container_name: udv-service-mock
+    ports:
+      - "8002:8002"
+    command: ["uvicorn", "src.mock_servers.service_api:app", "--host", "0.0.0.0", "--port", "8002"]
