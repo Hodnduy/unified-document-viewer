@@ -10,7 +10,8 @@ Run standalone:
 """
 
 import asyncio
-from fastapi import FastAPI, Query, HTTPException
+
+from fastapi import FastAPI, HTTPException, Query
 
 app = FastAPI(
     title="Mock Service System API",

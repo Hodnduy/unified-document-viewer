@@ -4,9 +4,7 @@ from datetime import date
 
 import pytest
 from pydantic import ValidationError
-
 from src.schemas.document import UnifiedDocument
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

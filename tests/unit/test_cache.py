@@ -9,7 +9,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 import src.cache.redis_client as cache_mod
 from src.cache.redis_client import (
     close_redis,
@@ -17,7 +16,6 @@ from src.cache.redis_client import (
     init_redis,
     set_cached,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

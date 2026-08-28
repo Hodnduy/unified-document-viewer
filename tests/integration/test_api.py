@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
 from src.db.base import Base
 from src.db.session import get_db_session
 from src.main import app

@@ -1,6 +1,5 @@
 import pytest
 from fastapi.testclient import TestClient
-
 from src.mock_servers.sales_api import app as sales_app
 from src.mock_servers.service_api import app as service_app
 

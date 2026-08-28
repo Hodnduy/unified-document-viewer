@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
 from src.db import get_db_session
 from src.db.base import Base
 from src.main import app
@@ -423,7 +422,7 @@ class TestAggregatorInvocation:
         """The endpoint must pass the validated VIN to the aggregator."""
         mock_aggregator.get_aggregated_documents.return_value = _aggregator_all_ok()
         client.get(_ENDPOINT, params={"vin": _TEST_VIN})
-        mock_aggregator.get_aggregated_documents.assert_called_once_with(_TEST_VIN)
+        mock_aggregator.get_aggregated_documents.assert_called_once_with(_TEST_VIN, force_refresh=False)
 
     def test_aggregator_called_with_different_vin(
         self, client: TestClient, mock_aggregator: AsyncMock
@@ -436,7 +435,7 @@ class TestAggregatorInvocation:
 
         r = client.get(_ENDPOINT, params={"vin": other_vin})
 
-        mock_aggregator.get_aggregated_documents.assert_called_once_with(other_vin)
+        mock_aggregator.get_aggregated_documents.assert_called_once_with(other_vin, force_refresh=False)
         assert r.json()["vin"] == other_vin
 
 

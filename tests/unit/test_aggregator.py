@@ -6,18 +6,15 @@ so tests run fast, deterministically, and without network access.
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 import respx
-
 from src.schemas.document import UnifiedDocument
-from src.services.aggregator import DocumentAggregator, _REQUEST_TIMEOUT
-
+from src.services.aggregator import _REQUEST_TIMEOUT, DocumentAggregator
 
 # ---------------------------------------------------------------------------
 # Sample payloads returned by the mock APIs
@@ -632,7 +629,7 @@ class TestGetAggregatedDocumentsSuccess:
 
         result = await aggregator.get_aggregated_documents(_TEST_VIN)
 
-        assert set(result.keys()) == {"vin", "documents", "sources", "degraded"}
+        assert set(result.keys()) == {"vin", "documents", "sources", "degraded", "cache_hit"}
 
 
 # ===================================================================
@@ -807,7 +804,7 @@ class TestGetAggregatedDocumentsWithRespx:
         sources = [doc.source_system for doc in result["documents"]]
         assert "sales" in sources
         assert "service" in sources
-        
+
         # Assert degraded is False
         assert result["degraded"] is False
 
